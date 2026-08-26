@@ -1,0 +1,26 @@
+# Python virtual environment
+.venv/
+.env
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Node / frontend build dependencies and build folders
+webapp/frontend/node_modules/
+webapp/frontend/dist/
+webapp/frontend/.vercel/
+webapp/frontend/.env
+webapp/frontend/.env.*
+
+# Generated data files (too large for git)
+data/cleaned/
+data/raw/universal_top_spotify_songs.csv
+webapp/backend/static/parquet/
+webapp/backend/cache/
+
+# References / external project presentations
+altriprogetti/
+
+# OS specific files
+.DS_Store
+Thumbs.db

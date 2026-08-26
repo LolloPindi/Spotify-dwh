@@ -1,0 +1,22 @@
+{
+  "cleanUrls": true,
+  "routes": [
+    {
+      "src": "/parquet/(.*).parquet",
+      "headers": {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Headers": "Range",
+        "Access-Control-Expose-Headers": "Content-Range, Content-Length, Accept-Ranges",
+        "Cache-Control": "public, max-age=31536000, immutable"
+      },
+      "dest": "/parquet/$1.parquet"
+    },
+    {
+      "handle": "filesystem"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/index.html"
+    }
+  ]
+}

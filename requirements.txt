@@ -1,0 +1,25 @@
+# ── Data & Database ──────────────────────────────────────────
+pandas>=2.0.0
+numpy>=1.24.0
+psycopg2-binary>=2.9.0
+sqlalchemy>=2.0.0
+python-dotenv>=1.0.0
+
+# ── ETL & Quality ────────────────────────────────────────────
+duckdb>=0.10.0          # OLAP locale durante ETL + firma cubo
+# hashlib is built-in, no need to install
+
+# ── Notebook ─────────────────────────────────────────────────
+jupyter>=1.0.0
+matplotlib>=3.7.0
+seaborn>=0.12.0
+
+# ── Backend ──────────────────────────────────────────────────
+fastapi>=0.110.0
+uvicorn[standard]>=0.29.0
+anthropic>=0.25.0       # Claude API per layer narrazione AI
+
+# ── Utilities ────────────────────────────────────────────────
+tqdm>=4.65.0
+pycountry>=22.3.5       # per normalizzazione codici paese ISO
+requests>=2.31.0
