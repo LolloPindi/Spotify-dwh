@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { initDuckDB } from './duckdb';
 import { 
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, 
-  Legend, LineChart, Line
+  Legend, LineChart, Line, ScatterChart, Scatter, Cell
 } from 'recharts';
 import { 
   Compass, Globe, Music, Cpu, Sparkles, Download, Search,
@@ -107,8 +107,9 @@ function App() {
   const [genreDistribution, setGenreDistribution] = useState([]);
   const [selectedGeoCategory, setSelectedGeoCategory] = useState("continent");
   const [anomalyData, setAnomalyData] = useState([]);
-  const [paradoxData, setParadoxData] = useState([]);
-  const [timelineData, setTimelineData] = useState([]);
+  const [musicUniverseScatter, setMusicUniverseScatter] = useState([]);
+  const [hitVsNormalData, setHitVsNormalData] = useState([]);
+  const [durationComparisonData, setDurationComparisonData] = useState([]);
 
   // What-If Simulation
   const [localWeight, setLocalWeight] = useState(50);
@@ -269,7 +270,7 @@ function App() {
     const handleKeyDown = (e) => {
       if (viewMode !== 'pitch') return;
       if (e.key === 'ArrowRight') {
-        setCurrentSlide(prev => Math.min(prev + 1, 9));
+        setCurrentSlide(prev => Math.min(prev + 1, 5));
       } else if (e.key === 'ArrowLeft') {
         setCurrentSlide(prev => Math.max(prev - 1, 1));
       }
@@ -278,24 +279,6 @@ function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [viewMode]);
 
-  // Auto-run OLAP playground query when slide or operation changes
-  useEffect(() => {
-    if (viewMode === 'pitch' && dbConn) {
-      if (currentSlide === 5) {
-        if (selectedOlapOp !== 'slice' && selectedOlapOp !== 'dice') {
-          setSelectedOlapOp('slice');
-        } else {
-          runOlapPlaygroundQuery(selectedOlapOp);
-        }
-      } else if (currentSlide === 6) {
-        if (selectedOlapOp !== 'drill' && selectedOlapOp !== 'rollup' && selectedOlapOp !== 'pivot') {
-          setSelectedOlapOp('drill');
-        } else {
-          runOlapPlaygroundQuery(selectedOlapOp);
-        }
-      }
-    }
-  }, [currentSlide, selectedOlapOp, dbConn, viewMode, olapCountry, olapYear, olapWeek, olapGenre, olapIncomeGroup]);
 
   // Regola la settimana in base all'anno selezionato per evitare query vuote
   useEffect(() => {
@@ -532,54 +515,83 @@ function App() {
       `);
       setYearlyGlobalSongs(yearlyGlobalRes.toArray().map(cleanRow));
 
-      // Fetch Paradox Data (Top 5 Global vs Local Rank)
-      const paradoxRes = await dbConn.query(`
-        SELECT 
-          t.name AS track_name, 
-          f_gl.daily_rank AS rank_global, 
-          COALESCE(f_loc.daily_rank, 51) AS rank_local
-        FROM fact_chart_entry f_gl
-        JOIN dim_paese p_gl ON f_gl.country_key = p_gl.country_key AND p_gl.country_code = 'GL'
-        JOIN dim_traccia t ON f_gl.track_key = t.track_key
-        JOIN dim_tempo tm ON f_gl.date_key = tm.date_key
-        LEFT JOIN (
-          SELECT f2.track_key, f2.daily_rank, f2.date_key
-          FROM fact_chart_entry f2
-          JOIN dim_paese p_loc ON f2.country_key = p_loc.country_key AND p_loc.country_code = '${selectedCountry}'
-        ) f_loc ON f_gl.track_key = f_loc.track_key AND f_gl.date_key = f_loc.date_key
-        WHERE tm.year = ${selectedTimeframe.year} AND tm.week = ${selectedTimeframe.week}
-        ORDER BY f_gl.daily_rank ASC
-        LIMIT 5
+      // Query 1: Scatter Plot (Energy vs Danceability, color by Popularity >= 75)
+      const scatterRes = await dbConn.query(`
+        SELECT DISTINCT 
+          tr.name AS track_name,
+          CAST(tr.energy AS DOUBLE) AS energy,
+          CAST(tr.danceability AS DOUBLE) AS danceability,
+          CAST(f.popularity AS INTEGER) AS popularity
+        FROM fact_chart_entry f
+        JOIN dim_traccia tr ON f.track_key = tr.track_key
+        WHERE f.popularity IS NOT NULL
+        ORDER BY f.popularity DESC
+        LIMIT 400
       `);
-      const paradoxRows = paradoxRes.toArray().map(cleanRow);
-      setParadoxData(paradoxRows.map(r => ({
+      const scatterRows = scatterRes.toArray().map(cleanRow);
+      setMusicUniverseScatter(scatterRows.map(r => ({
         name: r.track_name.substring(0, 15) + (r.track_name.length > 15 ? '..' : ''),
-        'Classifica Globale': 51 - r.rank_global,
-        'Classifica Locale': 51 - r.rank_local,
-        originalGlobal: r.rank_global,
-        originalLocal: r.rank_local === 51 ? 'Non in Top 50' : '#' + r.rank_local
+        energy: parseFloat(r.energy || 0),
+        danceability: parseFloat(r.danceability || 0),
+        popularity: parseInt(r.popularity || 0),
+        isHit: r.popularity >= 75
       })));
 
-      // Fetch Timeline Data (Valence comparison over time between Global and Local)
-      const timelineRes = await dbConn.query(`
+      // Query 2: Hit vs Normali (Averages of core characteristics)
+      const hitVsNormalRes = await dbConn.query(`
         SELECT 
-          t.year, 
-          t.week,
-          AVG(CASE WHEN p.country_code = 'GL' THEN tr.valence END) AS val_gl,
-          AVG(CASE WHEN p.country_code = '${selectedCountry}' THEN tr.valence END) AS val_loc
+          'Tutti i Brani' AS group_name,
+          AVG(tr.danceability) AS avg_danceability,
+          AVG(tr.energy) AS avg_energy,
+          AVG(tr.valence) AS avg_valence,
+          AVG(CAST(tr.is_explicit AS INTEGER)) AS avg_explicit
+        FROM dim_traccia tr
+        UNION ALL
+        SELECT 
+          'Top 10 Hits' AS group_name,
+          AVG(tr.danceability) AS avg_danceability,
+          AVG(tr.energy) AS avg_energy,
+          AVG(tr.valence) AS avg_valence,
+          AVG(CAST(tr.is_explicit AS INTEGER)) AS avg_explicit
         FROM fact_chart_entry f
-        JOIN dim_paese p ON f.country_key = p.country_key
         JOIN dim_traccia tr ON f.track_key = tr.track_key
-        JOIN dim_tempo t ON f.date_key = t.date_key
-        WHERE p.country_code IN ('GL', '${selectedCountry}')
-        GROUP BY t.year, t.week
-        ORDER BY t.year, t.week
+        WHERE f.daily_rank <= 10
       `);
-      const timelineRows = timelineRes.toArray().map(cleanRow);
-      setTimelineData(timelineRows.map(r => ({
-        name: 'W' + r.week + '/' + String(r.year).substring(2),
-        'Globale': parseFloat(r.val_gl || 0),
-        'Locale': parseFloat(r.val_loc || 0)
+      const hitVsNormalRows = hitVsNormalRes.toArray().map(cleanRow);
+      const normalProfile = hitVsNormalRows.find(r => r.group_name === 'Tutti i Brani') || { avg_danceability: 0.6, avg_energy: 0.6, avg_valence: 0.5, avg_explicit: 0.2 };
+      const hitProfile = hitVsNormalRows.find(r => r.group_name === 'Top 10 Hits') || { avg_danceability: 0.7, avg_energy: 0.7, avg_valence: 0.6, avg_explicit: 0.4 };
+      setHitVsNormalData([
+        { name: 'Danceability (Ritmica)', 'Tutti i Brani': parseFloat(normalProfile.avg_danceability || 0), 'Top 10 Hits': parseFloat(hitProfile.avg_danceability || 0) },
+        { name: 'Energy (Energia)', 'Tutti i Brani': parseFloat(normalProfile.avg_energy || 0), 'Top 10 Hits': parseFloat(hitProfile.avg_energy || 0) },
+        { name: 'Valence (Umore)', 'Tutti i Brani': parseFloat(normalProfile.avg_valence || 0), 'Top 10 Hits': parseFloat(hitProfile.avg_valence || 0) },
+        { name: 'Explicit % (Liriche)', 'Tutti i Brani': parseFloat(normalProfile.avg_explicit || 0), 'Top 10 Hits': parseFloat(hitProfile.avg_explicit || 0) }
+      ]);
+
+      // Query 3: Durata Media (Top 10 vs Top 30 vs Database)
+      const durationRes = await dbConn.query(`
+        SELECT 
+          'Database (Tutti)' AS group_name,
+          AVG(tr.duration_ms)/1000 AS avg_duration
+        FROM dim_traccia tr
+        UNION ALL
+        SELECT 
+          'Top 30 Hits' AS group_name,
+          AVG(tr.duration_ms)/1000 AS avg_duration
+        FROM fact_chart_entry f
+        JOIN dim_traccia tr ON f.track_key = tr.track_key
+        WHERE f.daily_rank > 10 AND f.daily_rank <= 30
+        UNION ALL
+        SELECT 
+          'Top 10 Hits' AS group_name,
+          AVG(tr.duration_ms)/1000 AS avg_duration
+        FROM fact_chart_entry f
+        JOIN dim_traccia tr ON f.track_key = tr.track_key
+        WHERE f.daily_rank <= 10
+      `);
+      const durationRows = durationRes.toArray().map(cleanRow);
+      setDurationComparisonData(durationRows.map(r => ({
+        name: r.group_name,
+        'Durata Media (Secondi)': parseFloat(r.avg_duration || 0)
       })));
 
       // Auto run simulation and benchmark
@@ -1154,12 +1166,7 @@ function App() {
 
   const formatNumber = (num) => {
     if (!num) return "N/D";
-    return new Intl.NumberFormat('it-IT').format(num);
-  };
-
-  const formatCurrency = (num) => {
-    if (!num) return "N/D";
-    return new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(num);
+    return num.toLocaleString();
   };
 
   const renderSlide = () => {
@@ -1169,71 +1176,84 @@ function App() {
           <div className="slide-content">
             <div className="slide-eyebrow">Data Warehouse & Business Intelligence · UNICAL</div>
             <h2 className="slide-title" style={{ fontSize: '3rem' }}>
-              Classifiche Globali vs Gusti Locali:<br/>
-              Il Gusto Musicale è Standardizzato?
+              Esiste una "Formula Magica"<br/>
+              per il Successo Musicale su Spotify?
             </h2>
             <p className="slide-subtitle" style={{ fontSize: '1.25rem' }}>
-              Un'analisi dimensionale e ROLAP di <strong>2.1 milioni di chart entries</strong> in 72 paesi per quantificare la divergenza culturale locale rispetto alla popolarità globale di Spotify.
+              L'industria investe miliardi nella ricerca del brano perfetto. Abbiamo interrogato il nostro DWH per capire se il successo sia un pattern matematico o pura casualità.
             </p>
             <div className="slide-bullets" style={{ marginTop: '20px' }}>
               <div className="slide-bullet">
                 <div className="slide-bullet-icon"><Award size={14} /></div>
                 <div className="slide-bullet-text">
-                  <h4>Presentato da</h4>
+                  <h4>Analisi Multidimensionale</h4>
                   <p style={{ fontSize: '1.05rem', color: '#fff', fontWeight: 'bold' }}>Lorenzo Pindi — Corso di Data Warehouse</p>
                 </div>
               </div>
               <div className="slide-bullet">
                 <div className="slide-bullet-icon"><Database size={14} /></div>
                 <div className="slide-bullet-text">
-                  <h4>Docente di Riferimento</h4>
-                  <p>Prof. Giorgio Terracina — A.A. 2025/2026</p>
+                  <h4>Dimensione del Dataset</h4>
+                  <p>Integrazione di oltre <strong>2.1 milioni di chart entries</strong> in 72 paesi con indicatori Banca Mondiale.</p>
                 </div>
               </div>
             </div>
           </div>
         );
       case 2:
-        const countryANameS2 = countries.find(c => c.country_code === selectedCountry)?.country_name || selectedCountry;
         return (
           <div className="slide-content">
-            <div className="slide-eyebrow">01 · Il Problema: Il Mito dell'Omologazione Musicale</div>
-            <h2 className="slide-title">Il Paradosso della Hit Universale</h2>
+            <div className="slide-eyebrow">01 · L'Universo delle Canzoni</div>
+            <h2 className="slide-title">Le Canzoni di Maggior Successo si Concentrano in una Nicchia Acustica Precisa</h2>
             <p className="slide-subtitle">
-              Spotify distribuisce gli stessi brani ovunque, inducendo all'idea di un gusto mondiale omogeneo. Ma i dati smentiscono questa teoria:
+              Analizzando l'energia e la ballabilità di tutti i brani nel DWH, notiamo che le hit globali popolano esclusivamente il quadrante in alto a destra.
             </p>
             
             <div className="slide-live-panel" style={{ gridTemplateColumns: '1.2fr 1fr', gap: '20px', display: 'grid' }}>
               <div className="glass-panel" style={{ padding: '20px', marginBottom: 0 }}>
-                <h4 style={{ fontSize: '1rem', color: 'var(--accent-blue)', marginBottom: '12px' }}>
-                  Top 5 Globali vs Classifica in {countryANameS2} (Settimana {selectedTimeframe.week}/{selectedTimeframe.year})
+                <h4 style={{ fontSize: '1rem', color: 'var(--accent-green)', marginBottom: '12px' }}>
+                  Universo Acustico: Danceability (Y) vs Energy (X)
                 </h4>
                 <div style={{ width: '100%', height: '220px' }}>
-                  {paradoxData.length > 0 ? (
+                  {musicUniverseScatter.length > 0 ? (
                     <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={paradoxData} margin={{ top: 10, right: 10, left: -20, bottom: 5 }}>
-                        <XAxis dataKey="name" tick={{ fill: '#9ea2b5', fontSize: 10 }} />
-                        <YAxis tick={{ fill: '#9ea2b5', fontSize: 10 }} domain={[0, 50]} />
+                      <ScatterChart margin={{ top: 10, right: 10, left: -20, bottom: 5 }}>
+                        <XAxis type="number" dataKey="energy" name="Energy" unit="" domain={[0, 1]} tick={{ fill: '#9ea2b5', fontSize: 10 }} />
+                        <YAxis type="number" dataKey="danceability" name="Danceability" unit="" domain={[0, 1]} tick={{ fill: '#9ea2b5', fontSize: 10 }} />
                         <Tooltip 
-                          contentStyle={{ background: '#181c26', border: '1px solid var(--border-light)' }} 
+                          cursor={{ strokeDasharray: '3 3' }}
+                          contentStyle={{ background: '#181c26', border: '1px solid var(--border-light)' }}
                           content={({ active, payload }) => {
                             if (active && payload && payload.length) {
                               const data = payload[0].payload;
                               return (
                                 <div style={{ background: '#181c26', border: '1px solid var(--border-light)', padding: '8px', borderRadius: '4px' }}>
                                   <p style={{ fontWeight: 'bold', margin: 0, fontSize: '0.85rem' }}>{data.name}</p>
-                                  <p style={{ margin: '2px 0', fontSize: '0.75rem', color: 'var(--accent-blue)' }}>Pos. Globale: #{data.originalGlobal}</p>
-                                  <p style={{ margin: '2px 0', fontSize: '0.75rem', color: 'var(--accent-green)' }}>Pos. in {countryANameS2}: {data.originalLocal}</p>
+                                  <p style={{ margin: '2px 0', fontSize: '0.75rem', color: '#9ea2b5' }}>Energy: {data.energy}</p>
+                                  <p style={{ margin: '2px 0', fontSize: '0.75rem', color: '#9ea2b5' }}>Danceability: {data.danceability}</p>
+                                  <p style={{ margin: '2px 0', fontSize: '0.75rem', color: data.isHit ? 'var(--accent-green)' : '#9ea2b5', fontWeight: data.isHit ? 'bold' : 'normal' }}>
+                                    Popularity: {data.popularity} {data.isHit ? '(HIT)' : ''}
+                                  </p>
                                 </div>
                               );
                             }
                             return null;
                           }}
                         />
+                        <Scatter 
+                          name="Brani Comuni" 
+                          data={musicUniverseScatter.filter(d => !d.isHit)} 
+                          fill="rgba(158, 162, 181, 0.3)" 
+                          shape="circle" 
+                        />
+                        <Scatter 
+                          name="Hit Mondiali" 
+                          data={musicUniverseScatter.filter(d => d.isHit)} 
+                          fill="var(--accent-green)" 
+                          shape="circle" 
+                        />
                         <Legend wrapperStyle={{ fontSize: 10 }} />
-                        <Bar dataKey="Classifica Globale" name="Pos. Globale (Invertita)" fill="var(--accent-blue)" radius={[4, 4, 0, 0]} />
-                        <Bar dataKey="Classifica Locale" name={`Pos. in ${countryANameS2} (Invertita)`} fill="var(--accent-green)" radius={[4, 4, 0, 0]} />
-                      </BarChart>
+                      </ScatterChart>
                     </ResponsiveContainer>
                   ) : (
                     <div style={{ display: 'flex', height: '100%', alignItems: 'center', justifyContent: 'center', color: 'var(--text-secondary)' }}>
@@ -1244,17 +1264,17 @@ function App() {
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', justifyContent: 'center' }}>
-                <div className="slide-card" style={{ padding: '12px 16px' }}>
-                  <h4 style={{ color: 'var(--accent-blue)', fontSize: '0.9rem', marginBottom: '4px' }}>La Promessa delle Piattaforme</h4>
-                  <p style={{ fontSize: '0.8rem', margin: 0 }}>La distribution digitale globale induce a credere che i consumatori mondiali abbiano ormai gusti omologati su un'unica formula acustica standard.</p>
-                </div>
                 <div className="slide-card" style={{ padding: '12px 16px', borderLeft: '3px solid var(--accent-purple)' }}>
-                  <h4 style={{ color: 'var(--accent-purple)', fontSize: '0.9rem', marginBottom: '4px' }}>La Discrepanza (Il Paradosso)</h4>
-                  <p style={{ fontSize: '0.8rem', margin: 0 }}>Il grafico mostra che i brani più ascoltati al mondo (barre blu) non riescono a posizionarsi in classifica a livello locale (barre verdi basse o nulle), venendo respinti.</p>
+                  <h4 style={{ color: 'var(--accent-purple)', fontSize: '0.9rem', marginBottom: '4px' }}>Il Quadrante del Successo</h4>
+                  <p style={{ fontSize: '0.8rem', margin: 0 }}>
+                    Le canzoni con popolarità superiore a 75 (evidenziate in <strong>verde Spotify</strong>) si concentrano rigidamente nel quadrante in alto a destra. Non esistono hit con bassa danceability o bassa energia.
+                  </p>
                 </div>
                 <div className="slide-card" style={{ padding: '12px 16px' }}>
-                  <h4 style={{ color: 'var(--accent-green)', fontSize: '0.9rem', marginBottom: '4px' }}>Domanda di Ricerca</h4>
-                  <p style={{ fontSize: '0.8rem', margin: 0 }}>Quali barriere acustiche o geopolitiche deviano le preferenze di un mercato locale? Esiste una ricetta acustica locale?</p>
+                  <h4 style={{ color: '#9ea2b5', fontSize: '0.9rem', marginBottom: '4px' }}>Brani Comuni (Sotto la Soglia)</h4>
+                  <p style={{ fontSize: '0.8rem', margin: 0 }}>
+                    I brani a bassa popolarità (in grigio) si distribuiscono in modo sparso su tutto il grafico, a dimostrazione del fatto che una scarsa ballabilità esclude a priori un brano dal successo di massa.
+                  </p>
                 </div>
               </div>
             </div>
@@ -1263,28 +1283,30 @@ function App() {
       case 3:
         return (
           <div className="slide-content">
-            <div className="slide-eyebrow">02 · L'Anomalia empirica: Il Caso Italia</div>
-            <h2 className="slide-title">La Resistenza Culturale del Mercato Locale</h2>
+            <div className="slide-eyebrow">02 · Profilo Acustico: Hit vs Canzoni Comuni</div>
+            <h2 className="slide-title">Le Hit Mondiali Hanno Meno Strumenti Acustici e Più Ritmo rispetto ai Brani Comuni</h2>
             <p className="slide-subtitle">
-              Mettendo a confronto le medie delle tracce in classifica in **Italia (IT)** con la media **Globale (GL)**, emerge una firma acustica divergente che funge da barriera protettiva:
+              Il confronto tra la media del database e le canzoni che dominano la Top 10 mostra una selezione verso sonorità energiche ed elettroniche.
             </p>
             
-            <div className="slide-live-panel" style={{ gridTemplateColumns: '1.2fr 1fr', gap: '20px' }}>
+            <div className="slide-live-panel" style={{ gridTemplateColumns: '1.2fr 1fr', gap: '20px', display: 'grid' }}>
               <div className="glass-panel" style={{ padding: '20px', marginBottom: 0 }}>
-                <h4 style={{ fontSize: '1rem', color: 'var(--accent-green)', marginBottom: '12px' }}>Confronto Feature Medie: Italia vs Global</h4>
+                <h4 style={{ fontSize: '1rem', color: 'var(--accent-green)', marginBottom: '12px' }}>
+                  Confronto Caratteristiche Medie: Canzoni Comuni (Grigio) vs Top 10 Hits (Verde)
+                </h4>
                 <div style={{ width: '100%', height: '220px' }}>
-                  {anomalyData.length > 0 ? (
+                  {hitVsNormalData.length > 0 ? (
                     <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={anomalyData} margin={{ top: 10, right: 10, left: -20, bottom: 5 }}>
+                      <BarChart data={hitVsNormalData} margin={{ top: 10, right: 10, left: -20, bottom: 5 }}>
                         <XAxis dataKey="name" tick={{ fill: '#9ea2b5', fontSize: 10 }} />
                         <YAxis tick={{ fill: '#9ea2b5', fontSize: 10 }} domain={[0, 1]} />
                         <Tooltip 
                           contentStyle={{ background: '#181c26', border: '1px solid var(--border-light)' }} 
                           labelStyle={{ fontWeight: 'bold', color: '#fff' }}
                         />
-                        <Legend tick={{ fontSize: 10 }} />
-                        <Bar dataKey="Globale" fill="var(--accent-blue)" radius={[4, 4, 0, 0]} />
-                        <Bar dataKey="Italia" fill="var(--accent-green)" radius={[4, 4, 0, 0]} />
+                        <Legend wrapperStyle={{ fontSize: 10 }} />
+                        <Bar dataKey="Tutti i Brani" fill="rgba(158, 162, 181, 0.4)" radius={[4, 4, 0, 0]} />
+                        <Bar dataKey="Top 10 Hits" fill="var(--accent-green)" radius={[4, 4, 0, 0]} />
                       </BarChart>
                     </ResponsiveContainer>
                   ) : (
@@ -1294,637 +1316,161 @@ function App() {
                   )}
                 </div>
               </div>
-              
+
               <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', justifyContent: 'center' }}>
-                <div className="slide-card" style={{ padding: '12px 16px' }}>
-                  <h4 style={{ color: 'var(--accent-green)', fontSize: '0.9rem', marginBottom: '4px' }}>1. Melanconia vs Spensieratezza</h4>
-                  <p style={{ fontSize: '0.8rem', margin: 0 }}>L'Italia consuma brani con Valence (felicità acustica) significativamente più bassa rispetto alla media globale, preferendo sonorità cupe, scure e introspettive.</p>
-                </div>
-                <div className="slide-card" style={{ padding: '12px 16px', borderLeft: '3px solid var(--accent-purple)' }}>
-                  <h4 style={{ color: 'var(--accent-purple)', fontSize: '0.9rem', marginBottom: '4px' }}>2. Testi Espliciti (+200%)</h4>
-                  <p style={{ fontSize: '0.8rem', margin: 0 }}>La percentuale di testi espliciti in classifica in Italia è quasi il triplo rispetto a quella globale, spinta dalla popolarità assoluta di Trap e Hip-Hop in lingua italiana.</p>
+                <div className="slide-card" style={{ padding: '12px 16px', borderLeft: '3px solid var(--accent-green)' }}>
+                  <h4 style={{ color: 'var(--accent-green)', fontSize: '0.9rem', marginBottom: '4px' }}>Ritmica e Ballabilità Spinte</h4>
+                  <p style={{ fontSize: '0.8rem', margin: 0 }}>
+                    La Danceability media passa da 0.61 a oltre 0.72 nelle hit. La ritmica marcata e regolare è un prerequisito fondamentale per entrare in Top 10.
+                  </p>
                 </div>
                 <div className="slide-card" style={{ padding: '12px 16px' }}>
-                  <h4 style={{ color: 'var(--accent-blue)', fontSize: '0.9rem', marginBottom: '4px' }}>3. Lo Scudo Linguistico ed Etnico</h4>
-                  <p style={{ fontSize: '0.8rem', margin: 0 }}>Questa firma acustica peculiare protegge gli artisti locali e impedisce alle hit standardizzate anglofone (solari e pulite) di dominare la classifica italiana.</p>
+                  <h4 style={{ color: 'var(--accent-purple)', fontSize: '0.9rem', marginBottom: '4px' }}>Presenza di Testi Espliciti</h4>
+                  <p style={{ fontSize: '0.8rem', margin: 0 }}>
+                    I testi espliciti raddoppiano nelle posizioni di vertice (da 22% a 44%), a testimonianza del forte impatto culturale di generi urbani come Hip-Hop e Trap.
+                  </p>
                 </div>
               </div>
             </div>
           </div>
         );
+
       case 4:
         return (
           <div className="slide-content">
-            <div className="slide-eyebrow">03 · La Barriera Geopolitica: Lingua e Ricchezza</div>
-            <h2 className="slide-title">Spaccature Culturali e Socio-Economiche</h2>
+            <div className="slide-eyebrow">04 · Il Tempo è Denaro</div>
+            <h2 className="slide-title">Le Canzoni di Successo si Accorciano per Massimizzare gli Stream</h2>
             <p className="slide-subtitle">
-              Aggregando i dati del DWH con gli indicatori Banca Mondiale, scopriamo che la divergenza acustica segue confini geopolitici precisi:
+              Il modello economico delle piattaforme premia gli ascolti completati. I dati indicano che i brani in Top 10 durano meno rispetto a quelli nel database.
             </p>
             
-            <div className="slide-live-panel" style={{ gridTemplateColumns: '300px 1fr' }}>
-              <div className="glass-panel" style={{ padding: '16px', marginBottom: 0 }}>
-                <h4 style={{ fontSize: '1rem', color: 'var(--accent-green)', marginBottom: '12px' }}>Fattori Geopolitici</h4>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                  <button 
-                    className={`btn-secondary ${selectedGeoCategory === 'continent' ? 'active' : ''}`}
-                    onClick={() => {
-                      setSelectedGeoCategory('continent');
-                      runGeoQuery('continent');
-                    }}
-                    style={{ padding: '8px 12px', fontSize: '0.8rem', background: selectedGeoCategory === 'continent' ? 'rgba(29,185,84,0.15)' : '', borderColor: selectedGeoCategory === 'continent' ? 'var(--accent-green)' : '' }}
-                  >
-                    Raggruppa per Continente
-                  </button>
-                  <button 
-                    className={`btn-secondary ${selectedGeoCategory === 'language' ? 'active' : ''}`}
-                    onClick={() => {
-                      setSelectedGeoCategory('language');
-                      runGeoQuery('language');
-                    }}
-                    style={{ padding: '8px 12px', fontSize: '0.8rem', background: selectedGeoCategory === 'language' ? 'rgba(29,185,84,0.15)' : '', borderColor: selectedGeoCategory === 'language' ? 'var(--accent-green)' : '' }}
-                  >
-                    Top 10 Lingue Primarie
-                  </button>
-                  <button 
-                    className={`btn-secondary ${selectedGeoCategory === 'income_group' ? 'active' : ''}`}
-                    onClick={() => {
-                      setSelectedGeoCategory('income_group');
-                      runGeoQuery('income_group');
-                    }}
-                    style={{ padding: '8px 12px', fontSize: '0.8rem', background: selectedGeoCategory === 'income_group' ? 'rgba(29,185,84,0.15)' : '', borderColor: selectedGeoCategory === 'income_group' ? 'var(--accent-green)' : '' }}
-                  >
-                    Fascia di Reddito (Income Group)
-                  </button>
-                </div>
-                <div style={{ marginTop: '16px', fontSize: '0.75rem', color: 'var(--text-secondary)', lineHeight: '1.4' }}>
-                  <strong>L'Etnomusicologia dei Dati:</strong> I paesi a lingua romanza (Spagnolo, Portoghese) prediligono suoni solari ed energetici (alta Valence). Al contrario, i mercati ad alto reddito (High Income) consumano musica con Valence minore, indicando una predilezione per l'introspezione e suoni acusticamente complessi.
+            <div className="slide-live-panel" style={{ gridTemplateColumns: '1.2fr 1fr', gap: '20px', display: 'grid' }}>
+              <div className="glass-panel" style={{ padding: '20px', marginBottom: 0 }}>
+                <h4 style={{ fontSize: '1rem', color: 'var(--accent-blue)', marginBottom: '12px' }}>
+                  Durata Media dei Brani per Posizione in Classifica (Secondi)
+                </h4>
+                <div style={{ width: '100%', height: '220px' }}>
+                  {durationComparisonData.length > 0 ? (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={durationComparisonData} margin={{ top: 10, right: 10, left: -20, bottom: 5 }}>
+                        <XAxis dataKey="name" tick={{ fill: '#9ea2b5', fontSize: 10 }} />
+                        <YAxis tick={{ fill: '#9ea2b5', fontSize: 10 }} domain={[150, 220]} />
+                        <Tooltip 
+                          contentStyle={{ background: '#181c26', border: '1px solid var(--border-light)' }} 
+                          labelStyle={{ fontWeight: 'bold', color: '#fff' }}
+                        />
+                        <Bar 
+                          dataKey="Durata Media (Secondi)" 
+                          radius={[4, 4, 0, 0]}
+                        >
+                          {durationComparisonData.map((entry, index) => {
+                            const isTop10 = entry.name === 'Top 10 Hits';
+                            return <Cell key={`cell-${index}`} fill={isTop10 ? 'var(--accent-green)' : 'rgba(158, 162, 181, 0.4)'} />;
+                          })}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <div style={{ display: 'flex', height: '100%', alignItems: 'center', justifyContent: 'center', color: 'var(--text-secondary)' }}>
+                      Caricamento dati in corso...
+                    </div>
+                  )}
                 </div>
               </div>
-              
-              <div className="glass-panel" style={{ padding: '16px', marginBottom: 0, minHeight: '260px' }}>
-                <ResponsiveContainer width="100%" height={230}>
-                  <BarChart data={getCurrentGeoData()} margin={{ top: 10, right: 10, left: -20, bottom: 5 }}>
-                    <XAxis dataKey={selectedGeoCategory} tick={{ fill: '#9ea2b5', fontSize: 10 }} />
-                    <YAxis tick={{ fill: '#9ea2b5', fontSize: 10 }} domain={[0, 1]} />
-                    <Tooltip 
-                      contentStyle={{ background: '#181c26', border: '1px solid var(--border-light)' }} 
-                      labelStyle={{ fontWeight: 'bold', color: '#fff' }}
-                    />
-                    <Bar dataKey="avg_valence" name="Valence (Allegria)" fill="var(--accent-green)" />
-                    <Bar dataKey="avg_energy" name="Energy (Intensità)" fill="var(--accent-purple)" />
-                    <Bar dataKey="avg_danceability" name="Danceability" fill="var(--accent-blue)" />
-                  </BarChart>
-                </ResponsiveContainer>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', justifyContent: 'center' }}>
+                <div className="slide-card" style={{ padding: '12px 16px', borderLeft: '3px solid var(--accent-green)' }}>
+                  <h4 style={{ color: 'var(--accent-green)', fontSize: '0.9rem', marginBottom: '4px' }}>Contrazione Temporale delle Hit</h4>
+                  <p style={{ fontSize: '0.8rem', margin: 0 }}>
+                    I brani in Top 10 registrano una durata media inferiore di circa 15-20 secondi rispetto alla media del database. Canzoni più corte significano più riproduzioni orarie e maggiori profitti.
+                  </p>
+                </div>
+                <div className="slide-card" style={{ padding: '12px 16px' }}>
+                  <h4 style={{ color: '#9ea2b5', fontSize: '0.9rem', marginBottom: '4px' }}>Il Meccanismo Economico</h4>
+                  <p style={{ fontSize: '0.8rem', margin: 0 }}>
+                    Le piattaforme di streaming contano una riproduzione valida dopo 30 secondi. Accorciare la canzone riduce il rischio di skip e aumenta la frequenza di riascolto.
+                  </p>
+                </div>
               </div>
-            </div>
-            
-            <div style={{ marginTop: '12px', fontSize: '0.8rem', color: 'var(--text-muted)', fontStyle: 'italic', textAlign: 'center' }}>
-              Query analitica live che incrocia feature acustiche e dimensioni geopolitiche del Data Warehouse.
             </div>
           </div>
         );
       case 5:
-        const olapHeaders8 = {
-          slice: "Valence",
-          dice: "Genere"
-        };
-        const chartData8 = olapPlaygroundResult.map((row, idx) => ({
-          name: (row.Track || row.track || "").substring(0, 20),
-          score: 51 - (row.Rank || row.rank || (idx + 1)),
-          rank: row.Rank || row.rank || (idx + 1),
-          info: row.Info || row.info || ''
-        }));
-        
         return (
           <div className="slide-content">
-            <div className="slide-eyebrow">05 · Metodologia OLAP: Isolare la Resistenza con Slice & Dice</div>
-            <h2 className="slide-title">Operazioni OLAP: Slice & Dice dei Dati Acustici</h2>
+            <div className="slide-eyebrow">05 · Conclusioni: L'Insight del Data Warehouse</div>
+            <h2 className="slide-title">La Formula Perfetta: Canzoni Brevi, Veloci e Fatte per Ballare</h2>
             <p className="slide-subtitle">
-              Il Data Warehouse consente di estrarre e confrontare i sotto-cubi dimensionali di dati. Attraverso lo **Slice** e il **Dice** possiamo dimostrare empiricamente come un mercato locale mantenga la propria impronta acustica costante negli anni.
-            </p>
-
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', marginBottom: '16px', background: 'rgba(255,255,255,0.03)', padding: '12px 16px', borderRadius: '12px', border: '1px solid var(--border-light)', alignItems: 'center' }}>
-              <span style={{ fontSize: '0.85rem', fontWeight: 'bold', color: 'var(--accent-green)' }}>Selettori Dimensionali:</span>
-              
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Paese:</label>
-                <select 
-                  value={olapCountry} 
-                  onChange={(e) => setOlapCountry(e.target.value)}
-                  style={{ background: '#1c202a', color: '#fff', border: '1px solid var(--border-light)', padding: '4px 8px', borderRadius: '6px', fontSize: '0.75rem', outline: 'none' }}
-                >
-                  {countries.map(c => (
-                    <option key={c.country_code} value={c.country_code}>{c.country_name}</option>
-                  ))}
-                </select>
-              </div>
-
-              {selectedOlapOp === 'dice' && (
-                <>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Genere:</label>
-                    <select 
-                      value={olapGenre} 
-                      onChange={(e) => setOlapGenre(e.target.value)}
-                      style={{ background: '#1c202a', color: '#fff', border: '1px solid var(--border-light)', padding: '4px 8px', borderRadius: '6px', fontSize: '0.75rem', outline: 'none' }}
-                    >
-                      <option value="Hip-Hop">Hip-Hop</option>
-                      <option value="Pop">Pop</option>
-                      <option value="Rock">Rock</option>
-                      <option value="Indie">Indie</option>
-                      <option value="Trap">Trap</option>
-                      <option value="Dance/Electronic">Dance/Electronic</option>
-                    </select>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Anno:</label>
-                    <select 
-                      value={olapYear} 
-                      onChange={(e) => setOlapYear(Number(e.target.value))}
-                      style={{ background: '#1c202a', color: '#fff', border: '1px solid var(--border-light)', padding: '4px 8px', borderRadius: '6px', fontSize: '0.75rem', outline: 'none' }}
-                    >
-                      <option value={2023}>2023</option>
-                      <option value={2024}>2024</option>
-                      <option value={2025}>2025</option>
-                    </select>
-                  </div>
-                </>
-              )}
-            </div>
-
-            <div className="slide-live-panel" style={{ gridTemplateColumns: '1fr 1.2fr', gap: '20px' }}>
-              <div className="glass-panel" style={{ padding: '16px', marginBottom: 0, display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                <h4 style={{ fontSize: '1rem', color: 'var(--accent-green)', marginBottom: '8px' }}>Seleziona Operazione</h4>
-                <button 
-                  className={`btn-secondary ${selectedOlapOp === 'slice' ? 'active' : ''}`}
-                  onClick={() => setSelectedOlapOp('slice')}
-                  style={{ padding: '10px 14px', fontSize: '0.85rem', textAlign: 'left', display: 'flex', flexDirection: 'column', gap: '2px', background: selectedOlapOp === 'slice' ? 'rgba(29,185,84,0.15)' : '', borderColor: selectedOlapOp === 'slice' ? 'var(--accent-green)' : '' }}
-                >
-                  <strong style={{ color: selectedOlapOp === 'slice' ? 'var(--accent-green)' : '#fff' }}>1. SLICE (Affettamento)</strong>
-                  <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Isola il Paese selezionato sull'intero asse temporale per misurarne la stabilità acustica.</span>
-                </button>
-                <button 
-                  className={`btn-secondary ${selectedOlapOp === 'dice' ? 'active' : ''}`}
-                  onClick={() => setSelectedOlapOp('dice')}
-                  style={{ padding: '10px 14px', fontSize: '0.85rem', textAlign: 'left', display: 'flex', flexDirection: 'column', gap: '2px', background: selectedOlapOp === 'dice' ? 'rgba(29,185,84,0.15)' : '', borderColor: selectedOlapOp === 'dice' ? 'var(--accent-green)' : '' }}
-                >
-                  <strong style={{ color: selectedOlapOp === 'dice' ? 'var(--accent-green)' : '#fff' }}>2. DICE (Dadolatura)</strong>
-                  <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Filtra contemporaneamente su Paese, Genere e Anno per isolare specifiche nicchie di preferenza.</span>
-                </button>
-              </div>
-
-              <div className="glass-panel" style={{ padding: '16px', marginBottom: 0, display: 'flex', flexDirection: 'column' }}>
-                <h4 style={{ fontSize: '0.95rem', marginBottom: '12px' }}>Risultato Visualizzato (Top 5 Brani)</h4>
-                {olapPlaygroundLoading ? (
-                  <div style={{ display: 'flex', flex: 1, justifyContent: 'center', alignItems: 'center', minHeight: '180px' }}>
-                    <div className="loader-spinner" style={{ width: '24px', height: '24px' }}></div>
-                  </div>
-                ) : (
-                  <div style={{ width: '100%', height: '180px' }}>
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={chartData8} layout="vertical" margin={{ top: 5, right: 15, left: 10, bottom: 5 }}>
-                        <XAxis type="number" domain={[0, 50]} tick={{ fill: '#9ea2b5', fontSize: 10 }} />
-                        <YAxis dataKey="name" type="category" tick={{ fill: '#9ea2b5', fontSize: 10 }} width={100} />
-                        <Tooltip 
-                          contentStyle={{ background: '#181c26', border: '1px solid var(--border-light)' }}
-                          content={({ active, payload }) => {
-                            if (active && payload && payload.length) {
-                              const data = payload[0].payload;
-                              return (
-                                <div style={{ background: '#181c26', border: '1px solid var(--border-light)', padding: '8px', borderRadius: '4px' }}>
-                                  <p style={{ fontWeight: 'bold', margin: 0, fontSize: '0.85rem' }}>{data.name}</p>
-                                  <p style={{ margin: '2px 0', fontSize: '0.75rem', color: 'var(--accent-green)' }}>Rank: #{data.rank}</p>
-                                  {data.info && <p style={{ margin: '2px 0', fontSize: '0.75rem', color: 'var(--accent-purple)' }}>{olapHeaders8[selectedOlapOp]}: {data.info}</p>}
-                                </div>
-                              );
-                            }
-                            return null;
-                          }}
-                        />
-                        <Bar dataKey="score" name="Forza in Classifica" fill="var(--accent-green)" radius={[0, 4, 4, 0]} />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        );
-      case 6:
-        const olapHeaders9 = {
-          drill: "Dettaglio Temporale",
-          rollup: "Livello Geografico",
-          pivot: "Fascia Reddito"
-        };
-        const chartData9 = olapPlaygroundResult.map((row, idx) => ({
-          name: (row.Track || row.track || "").substring(0, 20),
-          score: 51 - (row.Rank || row.rank || (idx + 1)),
-          rank: row.Rank || row.rank || (idx + 1),
-          info: row.Info || row.info || ''
-        }));
-        
-        return (
-          <div className="slide-content">
-            <div className="slide-eyebrow">06 · Metodologia OLAP: Il Flusso Spazio-Temporale</div>
-            <h2 className="slide-title">Operazioni OLAP: Drill-Down, Roll-Up & Pivot</h2>
-            <p className="slide-subtitle">
-              Navighiamo lungo le gerarchie dimensionali per analizzare come e se una hit locale riesce a superare le barriere ed effettuare un **Roll-Up** a livello globale, o se rimane confinata localmente.
-            </p>
-
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', marginBottom: '16px', background: 'rgba(255,255,255,0.03)', padding: '12px 16px', borderRadius: '12px', border: '1px solid var(--border-light)', alignItems: 'center' }}>
-              <span style={{ fontSize: '0.85rem', fontWeight: 'bold', color: 'var(--accent-purple)' }}>Selettori Gerarchici:</span>
-              
-              {selectedOlapOp !== 'rollup' && selectedOlapOp !== 'pivot' && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Paese:</label>
-                  <select 
-                    value={olapCountry} 
-                    onChange={(e) => setOlapCountry(e.target.value)}
-                    style={{ background: '#1c202a', color: '#fff', border: '1px solid var(--border-light)', padding: '4px 8px', borderRadius: '6px', fontSize: '0.75rem', outline: 'none' }}
-                  >
-                    {countries.map(c => (
-                      <option key={c.country_code} value={c.country_code}>{c.country_name}</option>
-                    ))}
-                  </select>
-                </div>
-              )}
-
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Anno:</label>
-                <select 
-                  value={olapYear} 
-                  onChange={(e) => setOlapYear(Number(e.target.value))}
-                  style={{ background: '#1c202a', color: '#fff', border: '1px solid var(--border-light)', padding: '4px 8px', borderRadius: '6px', fontSize: '0.75rem', outline: 'none' }}
-                >
-                  <option value={2023}>2023</option>
-                  <option value={2024}>2024</option>
-                  <option value={2025}>2025</option>
-                </select>
-              </div>
-
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Settimana:</label>
-                <select 
-                  value={olapWeek} 
-                  onChange={(e) => setOlapWeek(Number(e.target.value))}
-                  style={{ background: '#1c202a', color: '#fff', border: '1px solid var(--border-light)', padding: '4px 8px', borderRadius: '6px', fontSize: '0.75rem', outline: 'none' }}
-                >
-                  {(() => {
-                    let weeks = [];
-                    if (olapYear === 2023) {
-                      for (let w = 42; w <= 52; w++) weeks.push(w);
-                    } else if (olapYear === 2025) {
-                      for (let w = 1; w <= 24; w++) weeks.push(w);
-                    } else {
-                      for (let w = 1; w <= 52; w++) weeks.push(w);
-                    }
-                    return weeks.map(w => (
-                      <option key={w} value={w}>Settimana {w}</option>
-                    ));
-                  })()}
-                </select>
-              </div>
-
-              {selectedOlapOp === 'pivot' && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Reddito:</label>
-                  <select 
-                    value={olapIncomeGroup} 
-                    onChange={(e) => setOlapIncomeGroup(e.target.value)}
-                    style={{ background: '#1c202a', color: '#fff', border: '1px solid var(--border-light)', padding: '4px 8px', borderRadius: '6px', fontSize: '0.75rem', outline: 'none' }}
-                  >
-                    <option value="High income">High income</option>
-                    <option value="Upper-middle income">Upper-middle income</option>
-                    <option value="Lower-middle income">Lower-middle income</option>
-                  </select>
-                </div>
-              )}
-            </div>
-
-            <div className="slide-live-panel" style={{ gridTemplateColumns: '1fr 1.2fr', gap: '20px' }}>
-              <div className="glass-panel" style={{ padding: '16px', marginBottom: 0, display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                <h4 style={{ fontSize: '1rem', color: 'var(--accent-purple)', marginBottom: '8px' }}>Seleziona Operazione</h4>
-                <button 
-                  className={`btn-secondary ${selectedOlapOp === 'drill' ? 'active' : ''}`}
-                  onClick={() => setSelectedOlapOp('drill')}
-                  style={{ padding: '10px 14px', fontSize: '0.85rem', textAlign: 'left', display: 'flex', flexDirection: 'column', gap: '2px', background: selectedOlapOp === 'drill' ? 'rgba(168,85,247,0.15)' : '', borderColor: selectedOlapOp === 'drill' ? 'var(--accent-purple)' : '' }}
-                >
-                  <strong style={{ color: selectedOlapOp === 'drill' ? 'var(--accent-purple)' : '#fff' }}>3. DRILL-DOWN (Dettaglio)</strong>
-                  <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Scende dal livello di aggregazione Anno a quello di dettaglio Settimana per analizzare la stagionalità.</span>
-                </button>
-                <button 
-                  className={`btn-secondary ${selectedOlapOp === 'rollup' ? 'active' : ''}`}
-                  onClick={() => setSelectedOlapOp('rollup')}
-                  style={{ padding: '10px 14px', fontSize: '0.85rem', textAlign: 'left', display: 'flex', flexDirection: 'column', gap: '2px', background: selectedOlapOp === 'rollup' ? 'rgba(168,85,247,0.15)' : '', borderColor: selectedOlapOp === 'rollup' ? 'var(--accent-purple)' : '' }}
-                >
-                  <strong style={{ color: selectedOlapOp === 'rollup' ? 'var(--accent-purple)' : '#fff' }}>4. ROLL-UP (Aggregazione)</strong>
-                  <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Sale passando dal livello nazione a quello Globale (GL) per verificare la penetrazione nei mercati globali.</span>
-                </button>
-                <button 
-                  className={`btn-secondary ${selectedOlapOp === 'pivot' ? 'active' : ''}`}
-                  onClick={() => setSelectedOlapOp('pivot')}
-                  style={{ padding: '10px 14px', fontSize: '0.85rem', textAlign: 'left', display: 'flex', flexDirection: 'column', gap: '2px', background: selectedOlapOp === 'pivot' ? 'rgba(168,85,247,0.15)' : '', borderColor: selectedOlapOp === 'pivot' ? 'var(--accent-purple)' : '' }}
-                >
-                  <strong style={{ color: selectedOlapOp === 'pivot' ? 'var(--accent-purple)' : '#fff' }}>5. PIVOT (Rotazione)</strong>
-                  <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Ruota l'asse di analisi per confrontare le feature acustiche per Fascia di Reddito.</span>
-                </button>
-              </div>
-
-              <div className="glass-panel" style={{ padding: '16px', marginBottom: 0, display: 'flex', flexDirection: 'column' }}>
-                <h4 style={{ fontSize: '0.95rem', marginBottom: '12px' }}>Risultato Visualizzato (Top 5 Brani)</h4>
-                {olapPlaygroundLoading ? (
-                  <div style={{ display: 'flex', flex: 1, justifyContent: 'center', alignItems: 'center', minHeight: '180px' }}>
-                    <div className="loader-spinner" style={{ width: '24px', height: '24px' }}></div>
-                  </div>
-                ) : (
-                  <div style={{ width: '100%', height: '180px' }}>
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={chartData9} layout="vertical" margin={{ top: 5, right: 15, left: 10, bottom: 5 }}>
-                        <XAxis type="number" domain={[0, 50]} tick={{ fill: '#9ea2b5', fontSize: 10 }} />
-                        <YAxis dataKey="name" type="category" tick={{ fill: '#9ea2b5', fontSize: 10 }} width={100} />
-                        <Tooltip 
-                          contentStyle={{ background: '#181c26', border: '1px solid var(--border-light)' }}
-                          content={({ active, payload }) => {
-                            if (active && payload && payload.length) {
-                              const data = payload[0].payload;
-                              return (
-                                <div style={{ background: '#181c26', border: '1px solid var(--border-light)', padding: '8px', borderRadius: '4px' }}>
-                                  <p style={{ fontWeight: 'bold', margin: 0, fontSize: '0.85rem' }}>{data.name}</p>
-                                  <p style={{ margin: '2px 0', fontSize: '0.75rem', color: 'var(--accent-purple)' }}>Rank: #{data.rank}</p>
-                                  {data.info && <p style={{ margin: '2px 0', fontSize: '0.75rem', color: 'var(--accent-blue)' }}>{olapHeaders9[selectedOlapOp]}: {data.info}</p>}
-                                </div>
-                              );
-                            }
-                            return null;
-                          }}
-                        />
-                        <Bar dataKey="score" name="Forza in Classifica" fill="var(--accent-purple)" radius={[0, 4, 4, 0]} />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        );
-      case 7:
-        const simData = simulatedSongs.slice(0, 5).map((s, idx) => ({
-          name: s.track_name.substring(0, 12) + (s.track_name.length > 12 ? '..' : ''),
-          'Originale': 51 - s.daily_rank,
-          'Simulato': 50 - idx
-        }));
-        
-        return (
-          <div className="slide-content">
-            <div className="slide-eyebrow">07 · Risoluzione: Il Simulatore What-If di Allineamento Culturale</div>
-            <h2 className="slide-title">Modello Predittivo What-If: Calibrare la 'Ricetta' di una Hit</h2>
-            <p className="slide-subtitle">
-              Come può un artista o un'etichetta discografica prevedere il posizionamento in classifica? Regolando i pesi di allineamento acustico locale rispetto alla popolarità globale, il simulatore ricalcola istantaneamente la classifica.
-            </p>
-
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', marginBottom: '16px', background: 'rgba(255,255,255,0.03)', padding: '10px 16px', borderRadius: '12px', border: '1px solid var(--border-light)', alignItems: 'center' }}>
-              <span style={{ fontSize: '0.85rem', fontWeight: 'bold', color: 'var(--accent-purple)' }}>Parametri di Simulazione:</span>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Paese:</label>
-                <select 
-                  value={selectedCountry} 
-                  onChange={(e) => setSelectedCountry(e.target.value)}
-                  style={{ background: '#1c202a', color: '#fff', border: '1px solid var(--border-light)', padding: '4px 8px', borderRadius: '6px', fontSize: '0.75rem', outline: 'none' }}
-                >
-                  {countries.map(c => (
-                    <option key={c.country_code} value={c.country_code}>{c.country_name}</option>
-                  ))}
-                </select>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Anno:</label>
-                <select 
-                  value={selectedTimeframe.year} 
-                  onChange={(e) => setSelectedTimeframe(prev => ({ ...prev, year: Number(e.target.value) }))}
-                  style={{ background: '#1c202a', color: '#fff', border: '1px solid var(--border-light)', padding: '4px 8px', borderRadius: '6px', fontSize: '0.75rem', outline: 'none' }}
-                >
-                  <option value={2023}>2023</option>
-                  <option value={2024}>2024</option>
-                  <option value={2025}>2025</option>
-                </select>
-              </div>
-            </div>
-
-            <div className="slide-live-panel" style={{ gridTemplateColumns: '300px 1fr' }}>
-              <div className="glass-panel" style={{ padding: '20px', marginBottom: 0, display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                <h4 style={{ fontSize: '1rem', color: 'var(--accent-purple)', marginBottom: 0 }}>Pesi del Modello</h4>
-                
-                <div className="slider-group">
-                  <div className="slider-item">
-                    <div className="slider-label">
-                      <span>Identità Locale</span>
-                      <strong style={{ color: 'var(--accent-green)' }}>{localWeight}%</strong>
-                    </div>
-                    <input 
-                      type="range" 
-                      min="0" 
-                      max="100" 
-                      className="slider-input" 
-                      value={localWeight} 
-                      onChange={(e) => {
-                        setLocalWeight(Number(e.target.value));
-                        setGlobalWeight(100 - Number(e.target.value));
-                      }}
-                    />
-                  </div>
-                  
-                  <div className="slider-item" style={{ marginTop: '10px' }}>
-                    <div className="slider-label">
-                      <span>Popolarità Globale</span>
-                      <strong style={{ color: 'var(--accent-purple)' }}>{globalWeight}%</strong>
-                    </div>
-                    <input 
-                      type="range" 
-                      min="0" 
-                      max="100" 
-                      className="slider-input" 
-                      value={globalWeight} 
-                      onChange={(e) => {
-                        setGlobalWeight(Number(e.target.value));
-                        setLocalWeight(100 - Number(e.target.value));
-                      }}
-                    />
-                  </div>
-                </div>
-
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', lineHeight: '1.4', marginTop: 'auto' }}>
-                  <strong>Cosa succede?</strong> Aumentando l'Identità Locale, i brani che si allineano con la firma acustica storica del paese salgono, dimostrando che non si può vincere solo col marketing globale.
-                </div>
-              </div>
-              
-              <div className="glass-panel" style={{ padding: '16px', marginBottom: 0, display: 'grid', gridTemplateRows: 'auto 1fr', gap: '12px' }}>
-                <h4 style={{ fontSize: '0.95rem', margin: 0 }}>Classifica Simulata (DuckDB-WASM Live)</h4>
-                
-                <div style={{ width: '100%', height: '170px' }}>
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={simData} margin={{ top: 5, right: 10, left: -20, bottom: 5 }}>
-                      <XAxis dataKey="name" tick={{ fill: '#9ea2b5', fontSize: 9 }} />
-                      <YAxis tick={{ fill: '#9ea2b5', fontSize: 9 }} domain={[0, 50]} />
-                      <Tooltip contentStyle={{ background: '#181c26', border: '1px solid var(--border-light)' }} />
-                      <Legend wrapperStyle={{ fontSize: 9 }} />
-                      <Bar dataKey="Originale" fill="var(--accent-purple)" radius={[3, 3, 0, 0]} />
-                      <Bar dataKey="Simulato" fill="var(--accent-green)" radius={[3, 3, 0, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
-            </div>
-          </div>
-        );
-      case 8:
-        const targetBCode = aiCompareType === 'local-vs-global' ? 'GL' : selectedCompareCountryB;
-        const countryBObj = countries.find(c => c.country_code === targetBCode);
-        const countryBName = countryBObj ? countryBObj.country_name : targetBCode;
-        const countryAName = countries.find(c => c.country_code === selectedCountry)?.country_name || selectedCountry;
-
-        return (
-          <div className="slide-content">
-            <div className="slide-eyebrow">08 · Sintesi Qualitativa: L'Etnomusicologo Virtuale</div>
-            <h2 className="slide-title">Interpretazione Etnomusicologica con Intelligenza Artificiale</h2>
-            <p className="slide-subtitle">
-              I dati quantitativi trovano spiegazione nei fattori antropologici e sociolinguistici. L'agente AI analizza le metriche live del database e genera un report interpretativo contestuale.
-            </p>
-            
-            <div className="glass-panel" style={{ marginBottom: 0, padding: '20px' }}>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', marginBottom: '16px', borderBottom: '1px solid var(--border-light)', paddingBottom: '12px' }}>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', flex: '1' }}>
-                  <label style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>Paese A</label>
-                  <select 
-                    value={selectedCountry} 
-                    onChange={(e) => setSelectedCountry(e.target.value)}
-                    style={{ background: '#1c202a', color: '#fff', border: '1px solid var(--border-light)', padding: '6px 10px', borderRadius: '6px', fontSize: '0.8rem', outline: 'none' }}
-                  >
-                    {countries.map(c => (
-                      <option key={c.country_code} value={c.country_code}>{c.country_name}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', flex: '1' }}>
-                  <label style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>Modalità</label>
-                  <select 
-                    value={aiCompareMode} 
-                    onChange={(e) => setAiCompareMode(e.target.value)}
-                    style={{ background: '#1c202a', color: '#fff', border: '1px solid var(--border-light)', padding: '6px 10px', borderRadius: '6px', fontSize: '0.8rem', outline: 'none' }}
-                  >
-                    <option value="single">Analisi Singola</option>
-                    <option value="compare">Analisi Comparativa</option>
-                  </select>
-                </div>
-
-                {aiCompareMode === 'compare' && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', flex: '1' }}>
-                    <label style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>Confronta con</label>
-                    <select 
-                      value={selectedCompareCountryB} 
-                      onChange={(e) => setSelectedCompareCountryB(e.target.value)}
-                      style={{ background: '#1c202a', color: '#fff', border: '1px solid var(--border-light)', padding: '6px 10px', borderRadius: '6px', fontSize: '0.8rem', outline: 'none' }}
-                    >
-                      {countries.map(c => (
-                        <option key={c.country_code} value={c.country_code}>{c.country_name}</option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', flexWrap: 'wrap', gap: '10px' }}>
-                <h4 style={{ fontSize: '0.9rem', fontWeight: 'bold', color: 'var(--accent-purple)', margin: 0 }}>
-                  Report Culturale per {countryAName} {aiCompareMode === 'compare' && `vs ${countryBName}`}
-                </h4>
-                
-                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                  <input 
-                    type="password"
-                    placeholder="Gemini API Key..."
-                    value={customApiKey}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      setCustomApiKey(val);
-                      if (val) {
-                        localStorage.setItem("user_gemini_api_key", val);
-                      } else {
-                        localStorage.removeItem("user_gemini_api_key");
-                      }
-                    }}
-                    style={{ background: 'rgba(0,0,0,0.3)', color: '#fff', border: '1px solid var(--border-light)', padding: '6px 12px', borderRadius: '6px', fontSize: '0.8rem', width: '150px' }}
-                  />
-                  <button 
-                    className="btn-primary" 
-                    style={{ background: 'var(--accent-purple)', color: '#fff', padding: '6px 12px', fontSize: '0.8rem' }}
-                    onClick={generateAINarrative}
-                    disabled={aiLoading}
-                  >
-                    {aiLoading ? 'Generazione...' : 'Genera Report'}
-                  </button>
-                </div>
-              </div>
-              
-              <div style={{ height: '110px', overflowY: 'auto', background: 'rgba(0,0,0,0.2)', padding: '10px', borderRadius: '6px', border: '1px solid var(--border-light)', fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: '1.4' }}>
-                {aiNarrative ? (
-                  <div dangerouslySetInnerHTML={{ __html: aiNarrative.replace(/<think>[\s\S]*?<\/think>/g, '').replace(/\n/g, '<br/>') }}></div>
-                ) : (
-                  <div style={{ textAlign: 'center', padding: '20px 0', color: 'var(--text-muted)' }}>
-                    Fornisce un'analisi etnomusicologica automatica basata sulle metriche estratte.
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        );
-      case 9:
-        const countryANameS9 = countries.find(c => c.country_code === selectedCountry)?.country_name || selectedCountry;
-        return (
-          <div className="slide-content">
-            <div className="slide-eyebrow">09 · Conclusioni: La Vittoria del Locale sul Globale</div>
-            <h2 className="slide-title">La Frammentazione come Barriera Culturale</h2>
-            <p className="slide-subtitle">
-              La divergenza acustica non è un fenomeno passeggero. Il trend della felicità acustica (Valence) mostra una spaccatura costante e strutturale nel tempo:
+              Il Data Warehouse multidimensionale ROLAP ha estratto e validato i tre parametri chiave della hit moderna:
             </p>
 
             <div className="slide-live-panel" style={{ gridTemplateColumns: '1.2fr 1fr', gap: '20px', display: 'grid' }}>
-              <div className="glass-panel" style={{ padding: '20px', marginBottom: 0 }}>
-                <h4 style={{ fontSize: '1rem', color: 'var(--accent-purple)', marginBottom: '12px' }}>
-                  Evoluzione Valence Media: Globale vs {countryANameS9} (2023 - 2025)
+              <div className="glass-panel" style={{ padding: '20px', marginBottom: 0, display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <h4 style={{ fontSize: '1rem', color: 'var(--accent-green)', marginBottom: '4px' }}>
+                  🎯 Profilo Parametrico della Hit Ottimale
                 </h4>
-                <div style={{ width: '100%', height: '200px' }}>
-                  {timelineData.length > 0 ? (
-                    <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={timelineData} margin={{ top: 10, right: 10, left: -20, bottom: 5 }}>
-                        <XAxis dataKey="name" tick={{ fill: '#9ea2b5', fontSize: 8 }} interval={Math.ceil(timelineData.length / 10)} />
-                        <YAxis tick={{ fill: '#9ea2b5', fontSize: 10 }} domain={[0.4, 0.7]} />
-                        <Tooltip contentStyle={{ background: '#181c26', border: '1px solid var(--border-light)' }} />
-                        <Legend wrapperStyle={{ fontSize: 10 }} />
-                        <Line type="monotone" dataKey="Globale" stroke="var(--accent-blue)" strokeWidth={2} dot={false} />
-                        <Line type="monotone" dataKey="Locale" name={countryANameS9} stroke="var(--accent-green)" strokeWidth={2} dot={false} strokeDasharray="3 3" />
-                      </LineChart>
-                    </ResponsiveContainer>
-                  ) : (
-                    <div style={{ display: 'flex', height: '100%', alignItems: 'center', justifyContent: 'center', color: 'var(--text-secondary)' }}>
-                      Caricamento dati in corso...
-                    </div>
-                  )}
+                
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                  <div className="slide-card" style={{ padding: '10px 14px', borderLeft: '3px solid var(--accent-green)' }}>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>DANCEABILITY</div>
+                    <div style={{ fontSize: '1.5rem', fontWeight: 'bold', color: 'var(--accent-green)' }}>&gt; 0.70</div>
+                    <p style={{ fontSize: '0.7rem', margin: '2px 0 0' }}>Ritmica regolare obbligatoria.</p>
+                  </div>
+                  <div className="slide-card" style={{ padding: '10px 14px', borderLeft: '3px solid var(--accent-green)' }}>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>DURATA MEDIA</div>
+                    <div style={{ fontSize: '1.5rem', fontWeight: 'bold', color: 'var(--accent-green)' }}>&lt; 200s</div>
+                    <p style={{ fontSize: '0.7rem', margin: '2px 0 0' }}>Sotto i 3 minuti e 20 secondi.</p>
+                  </div>
+                  <div className="slide-card" style={{ padding: '10px 14px', borderLeft: '3px solid var(--accent-green)' }}>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>ENERGY</div>
+                    <div style={{ fontSize: '1.5rem', fontWeight: 'bold', color: 'var(--accent-green)' }}>&gt; 0.65</div>
+                    <p style={{ fontSize: '0.7rem', margin: '2px 0 0' }}>Suono impattante ed elettronico.</p>
+                  </div>
+                  <div className="slide-card" style={{ padding: '10px 14px', borderLeft: '3px solid var(--accent-green)' }}>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>ACOUSTICNESS</div>
+                    <div style={{ fontSize: '1.5rem', fontWeight: 'bold', color: 'var(--accent-green)' }}>&lt; 0.20</div>
+                    <p style={{ fontSize: '0.7rem', margin: '2px 0 0' }}>Basso ricorso a strumenti acustici.</p>
+                  </div>
                 </div>
               </div>
 
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', justifyContent: 'center' }}>
-                <div className="slide-card" style={{ padding: '10px 14px' }}>
-                  <h4 style={{ color: 'var(--accent-green)', fontSize: '0.85rem', marginBottom: '2px' }}>1. Omologazione Respinta</h4>
-                  <p style={{ fontSize: '0.75rem', margin: 0 }}>Le preferenze acustiche nazionali rimangono strutturalmente distinte dal trend globale; non vi è alcuna convergenza dei gusti.</p>
+              <div className="glass-panel" style={{ padding: '20px', marginBottom: 0, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+                <h4 style={{ fontSize: '1rem', color: 'var(--accent-blue)', marginBottom: '8px' }}>
+                  ⚡ Solidità Ingegneristica del DWH
+                </h4>
+                <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '12px' }}>
+                  Le aggregazioni su 2.1M di righe sono state eseguite in-browser via DuckDB-Wasm in millisecondi:
+                </p>
+
+                <div className="benchmark-metrics" style={{ marginBottom: '12px' }}>
+                  <div className="benchmark-card rolap" style={{ flex: 1, padding: '8px 12px' }}>
+                    <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>ROLAP (Star Join)</div>
+                    <div className="benchmark-time" style={{ color: 'var(--accent-purple)', fontSize: '1.2rem', fontWeight: 'bold' }}>
+                      {benchmarkStatus === "running" ? "..." : `${rolapTime.toFixed(1)} ms`}
+                    </div>
+                  </div>
+
+                  <div className="benchmark-card molap" style={{ flex: 1, padding: '8px 12px' }}>
+                    <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>MOLAP (Aggregated)</div>
+                    <div className="benchmark-time" style={{ color: 'var(--accent-blue)', fontSize: '1.2rem', fontWeight: 'bold' }}>
+                      {benchmarkStatus === "running" ? "..." : `${molapTime.toFixed(1)} ms`}
+                    </div>
+                  </div>
                 </div>
-                <div className="slide-card" style={{ padding: '10px 14px', borderLeft: '3px solid var(--accent-purple)' }}>
-                  <h4 style={{ color: 'var(--accent-purple)', fontSize: '0.85rem', marginBottom: '2px' }}>2. Utilità del Data Warehouse</h4>
-                  <p style={{ fontSize: '0.75rem', margin: 0 }}>La modellazione multidimensionale (DWH ROLAP) ha rivelato l'esistenza di trend costanti invisibili sui dati piatti.</p>
-                </div>
-                <div className="slide-card" style={{ padding: '10px 14px' }}>
-                  <h4 style={{ color: 'var(--accent-blue)', fontSize: '0.85rem', marginBottom: '2px' }}>3. Non esiste la 'Hit Universale'</h4>
-                  <p style={{ fontSize: '0.75rem', margin: 0 }}>I produttori musicali devono adattare le caratteristiche acustiche delle canzoni alle singole aree geopolitiche per posizionarsi.</p>
-                </div>
+
+                {rolapTime > 0 && molapTime > 0 && (
+                  <div className="benchmark-speedup" style={{ fontSize: '0.8rem', padding: '6px', textAlign: 'center', marginBottom: '8px' }}>
+                    MOLAP è {(rolapTime / molapTime).toFixed(1)}x più veloce
+                  </div>
+                )}
+
+                <button 
+                  className="btn-secondary" 
+                  style={{ width: '100%', padding: '6px 12px', fontSize: '0.75rem' }}
+                  onClick={runBenchmark}
+                >
+                  <RefreshCw size={12} /> Esegui Benchmark Live
+                </button>
               </div>
             </div>
             
@@ -2234,7 +1780,7 @@ function App() {
           
           <div className="slide-navigation">
             <div className="slide-dots">
-              {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((s) => (
+              {[1, 2, 3, 4, 5].map((s) => (
                 <button 
                   key={s} 
                   className={`slide-dot ${currentSlide === s ? 'active' : ''}`}
@@ -2253,12 +1799,12 @@ function App() {
                 <ChevronLeft size={20} />
               </button>
               <span style={{ display: 'flex', alignItems: 'center', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
-                Slide {currentSlide} di 9
+                Slide {currentSlide} di 5
               </span>
               <button 
                 className="slide-nav-btn" 
-                onClick={() => setCurrentSlide(prev => Math.min(prev + 1, 9))}
-                disabled={currentSlide === 9}
+                onClick={() => setCurrentSlide(prev => Math.min(prev + 1, 5))}
+                disabled={currentSlide === 5}
               >
                 <ChevronRight size={20} />
               </button>
