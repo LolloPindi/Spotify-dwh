@@ -1144,23 +1144,23 @@ function App() {
       case 2:
         return (
           <div className="slide-content">
-            <div className="slide-eyebrow">01 · Il Paradosso di Partenza</div>
-            <h2 className="slide-title">Il Paradosso di Popolarità (Hook)</h2>
+            <div className="slide-eyebrow">01 · Il Problema: Il Mito dell'Omologazione Musicale</div>
+            <h2 className="slide-title">Il Paradosso della Hit Universale (Hook)</h2>
             <p className="slide-subtitle">
-              Spotify assegna uno score di popolarità globale (`popularity`) a ciascun brano. Tuttavia, quando scendiamo nelle classifiche locali (`daily_rank`), scopriamo una discrepanza sistematica:
+              Spotify distribuisce la stessa musica a miliardi di utenti, suggerendo che i confini geografici siano superati. Ma i dati rivelano una profonda discrepanza:
             </p>
             <div className="slide-card-grid">
               <div className="slide-card">
-                <h4>1. Divergenza Sistematica</h4>
-                <p>I brani con una popolarità globale di 90+ spesso non riescono ad entrare nella Top 10 delle chart di molte nazioni, bloccati da preferenze culturali autoctone.</p>
+                <h4>La Promessa delle Piattaforme</h4>
+                <p>La distribuzione digitale globale induce a credere che i consumatori mondiali abbiano ormai gusti omologati su un'unica formula acustica standard.</p>
               </div>
               <div className="slide-card">
-                <h4>2. Barriere Culturali</h4>
-                <p>Generi locali come l'Afrobeats in Nigeria, la musica Latina in Sud America o il K-Pop in Corea del Sud creano dei veri e propri ecosistemi musicali resistenti alle hit anglofone.</p>
+                <h4>Il Paradosso nei Dati</h4>
+                <p>Brani con un punteggio di popolarità globale superiore a 90/100 falliscono sistematicamente nel posizionarsi nelle Top 10 nazionali, respinti da barriere culturali ed etnico-linguistiche.</p>
               </div>
               <div className="slide-card" style={{ borderLeft: '3px solid var(--accent-purple)' }}>
-                <h4>3. L'Obiettivo del DWH</h4>
-                <p>Costruire una struttura multidimensionale per quantificare la divergenza culturale locale ed esplorare le feature acustiche che la guidano.</p>
+                <h4>La Domanda di Ricerca</h4>
+                <p>Esiste davvero una ricetta acustica universale per il successo, o ogni mercato locale esige una combinazione specifica ed esclusiva di caratteristiche acustiche?</p>
               </div>
             </div>
           </div>
@@ -1168,10 +1168,10 @@ function App() {
       case 3:
         return (
           <div className="slide-content">
-            <div className="slide-eyebrow">02 · L'Anomalia nei Dati</div>
+            <div className="slide-eyebrow">02 · L'Anomalia empirica: Il Caso Italia</div>
             <h2 className="slide-title">La Resistenza Culturale del Mercato Locale</h2>
             <p className="slide-subtitle">
-              Confrontando le caratteristiche acustiche delle canzoni in classifica in **Italia (IT)** rispetto alla classifica **Globale (GL)**, emerge una chiara irregolarità sistematica che smentisce la standardizzazione universale:
+              Mettendo a confronto le medie delle tracce in classifica in **Italia (IT)** con la media **Globale (GL)**, emerge una firma acustica divergente che funge da barriera protettiva:
             </p>
             
             <div className="slide-live-panel" style={{ gridTemplateColumns: '1.2fr 1fr', gap: '20px' }}>
@@ -1202,16 +1202,16 @@ function App() {
               
               <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', justifyContent: 'center' }}>
                 <div className="slide-card" style={{ padding: '12px 16px' }}>
-                  <h4 style={{ color: 'var(--accent-green)', fontSize: '0.9rem', marginBottom: '4px' }}>1. Bassa Valence (Melanconia)</h4>
-                  <p style={{ fontSize: '0.8rem', margin: 0 }}>La classifica italiana predilige sonorità decisamente più scure e introspettive (Valence più bassa) rispetto all'allegria media dei brani globali.</p>
+                  <h4 style={{ color: 'var(--accent-green)', fontSize: '0.9rem', marginBottom: '4px' }}>1. Melanconia vs Spensieratezza</h4>
+                  <p style={{ fontSize: '0.8rem', margin: 0 }}>L'Italia consuma brani con Valence (felicità acustica) significativamente più bassa rispetto alla media globale, preferendo sonorità cupe, scure e introspettive.</p>
                 </div>
                 <div className="slide-card" style={{ padding: '12px 16px', borderLeft: '3px solid var(--accent-purple)' }}>
-                  <h4 style={{ color: 'var(--accent-purple)', fontSize: '0.9rem', marginBottom: '4px' }}>2. Explicit Content (+200%)</h4>
-                  <p style={{ fontSize: '0.8rem', margin: 0 }}>La penetrazione di testi espliciti in Italia è quasi tripla rispetto al mercato globale, guidata dalla dominanza assoluta della Trap e Hip-Hop locale.</p>
+                  <h4 style={{ color: 'var(--accent-purple)', fontSize: '0.9rem', marginBottom: '4px' }}>2. Testi Espliciti (+200%)</h4>
+                  <p style={{ fontSize: '0.8rem', margin: 0 }}>La percentuale di testi espliciti in classifica in Italia è quasi il triplo rispetto a quella globale, spinta dalla popolarità assoluta di Trap e Hip-Hop in lingua italiana.</p>
                 </div>
                 <div className="slide-card" style={{ padding: '12px 16px' }}>
-                  <h4 style={{ color: 'var(--accent-blue)', fontSize: '0.9rem', marginBottom: '4px' }}>3. Standardizzazione Respinta</h4>
-                  <p style={{ fontSize: '0.8rem', margin: 0 }}>Questa barriera linguistica ed etnica protegge il mercato locale e dimostra che il consumatore locale ha esigenze acustiche specifiche.</p>
+                  <h4 style={{ color: 'var(--accent-blue)', fontSize: '0.9rem', marginBottom: '4px' }}>3. Lo Scudo Linguistico ed Etnico</h4>
+                  <p style={{ fontSize: '0.8rem', margin: 0 }}>Questa firma acustica peculiare protegge gli artisti locali e impedisce alle hit standardizzate anglofone (solari e pulite) di dominare la classifica italiana.</p>
                 </div>
               </div>
             </div>
@@ -1220,15 +1220,15 @@ function App() {
       case 4:
         return (
           <div className="slide-content">
-            <div className="slide-eyebrow">04 · La Barriera Geopolitica: Censo e Lingua</div>
-            <h2 className="slide-title">Divergenza Acustica per Fattori Socio-Economici</h2>
+            <div className="slide-eyebrow">03 · La Barriera Geopolitica: Lingua e Ricchezza</div>
+            <h2 className="slide-title">Spaccature Culturali e Socio-Economiche</h2>
             <p className="slide-subtitle">
-              La ricchezza economica (World Bank GDP) e le barriere linguistiche dividono nettamente le preferenze acustiche globali.
+              Aggregando i dati del DWH con gli indicatori Banca Mondiale, scopriamo che la divergenza acustica segue confini geopolitici precisi:
             </p>
             
             <div className="slide-live-panel" style={{ gridTemplateColumns: '300px 1fr' }}>
               <div className="glass-panel" style={{ padding: '16px', marginBottom: 0 }}>
-                <h4 style={{ fontSize: '1rem', color: 'var(--accent-green)', marginBottom: '12px' }}>Dimensione Geopolitica</h4>
+                <h4 style={{ fontSize: '1rem', color: 'var(--accent-green)', marginBottom: '12px' }}>Fattori Geopolitici</h4>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                   <button 
                     className={`btn-secondary ${selectedGeoCategory === 'continent' ? 'active' : ''}`}
@@ -1262,7 +1262,7 @@ function App() {
                   </button>
                 </div>
                 <div style={{ marginTop: '16px', fontSize: '0.75rem', color: 'var(--text-secondary)', lineHeight: '1.4' }}>
-                  <strong>Nota Etnomusicologica:</strong> I paesi a lingua romanza (es. Spagnolo, Portoghese) e dell'America Latina mostrano una <strong>Valence (felicità del suono)</strong> nettamente superiore alle nazioni del Nord Europa.
+                  <strong>L'Etnomusicologia dei Dati:</strong> I paesi a lingua romanza (Spagnolo, Portoghese) prediligono suoni solari ed energetici (alta Valence). Al contrario, i mercati ad alto reddito (High Income) consumano musica con Valence minore, indicando una predilezione per l'introspezione e suoni acusticamente complessi.
                 </div>
               </div>
               
@@ -1284,7 +1284,7 @@ function App() {
             </div>
             
             <div style={{ marginTop: '12px', fontSize: '0.8rem', color: 'var(--text-muted)', fontStyle: 'italic', textAlign: 'center' }}>
-              Query analitica eseguita live su DuckDB aggregando dati socio-economici e audio-features.
+              Query analitica live che incrocia feature acustiche e dimensioni geopolitiche del Data Warehouse.
             </div>
           </div>
         );
@@ -1302,14 +1302,14 @@ function App() {
         
         return (
           <div className="slide-content">
-            <div className="slide-eyebrow">05 · OLAP Live: Isolare la Resistenza Culturale</div>
-            <h2 className="slide-title">Operazioni OLAP: Slice & Dice</h2>
+            <div className="slide-eyebrow">05 · Metodologia OLAP: Isolare la Resistenza con Slice & Dice</div>
+            <h2 className="slide-title">Operazioni OLAP: Slice & Dice dei Dati Acustici</h2>
             <p className="slide-subtitle">
-              Sperimenta live come isolare specifici sotto-cubi dimensionali di dati per quantificare la resistenza locale rispetto alle hit globali.
+              Il Data Warehouse consente di estrarre e confrontare i sotto-cubi dimensionali di dati. Attraverso lo **Slice** e il **Dice** possiamo dimostrare empiricamente come un mercato locale mantenga la propria impronta acustica costante negli anni.
             </p>
 
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', marginBottom: '16px', background: 'rgba(255,255,255,0.03)', padding: '12px 16px', borderRadius: '12px', border: '1px solid var(--border-light)', alignItems: 'center' }}>
-              <span style={{ fontSize: '0.85rem', fontWeight: 'bold', color: 'var(--accent-green)' }}>Selettori:</span>
+              <span style={{ fontSize: '0.85rem', fontWeight: 'bold', color: 'var(--accent-green)' }}>Selettori Dimensionali:</span>
               
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                 <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Paese:</label>
@@ -1366,7 +1366,7 @@ function App() {
                   style={{ padding: '10px 14px', fontSize: '0.85rem', textAlign: 'left', display: 'flex', flexDirection: 'column', gap: '2px', background: selectedOlapOp === 'slice' ? 'rgba(29,185,84,0.15)' : '', borderColor: selectedOlapOp === 'slice' ? 'var(--accent-green)' : '' }}
                 >
                   <strong style={{ color: selectedOlapOp === 'slice' ? 'var(--accent-green)' : '#fff' }}>1. SLICE (Affettamento)</strong>
-                  <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Isola il Paese selezionato sull'intero asse temporale.</span>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Isola il Paese selezionato sull'intero asse temporale per misurarne la stabilità acustica.</span>
                 </button>
                 <button 
                   className={`btn-secondary ${selectedOlapOp === 'dice' ? 'active' : ''}`}
@@ -1374,7 +1374,7 @@ function App() {
                   style={{ padding: '10px 14px', fontSize: '0.85rem', textAlign: 'left', display: 'flex', flexDirection: 'column', gap: '2px', background: selectedOlapOp === 'dice' ? 'rgba(29,185,84,0.15)' : '', borderColor: selectedOlapOp === 'dice' ? 'var(--accent-green)' : '' }}
                 >
                   <strong style={{ color: selectedOlapOp === 'dice' ? 'var(--accent-green)' : '#fff' }}>2. DICE (Dadolatura)</strong>
-                  <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Filtra contemporaneamente su Paese, Genere, Anno e Settimana.</span>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Filtra contemporaneamente su Paese, Genere e Anno per isolare specifiche nicchie di preferenza.</span>
                 </button>
               </div>
 
@@ -1430,14 +1430,14 @@ function App() {
         
         return (
           <div className="slide-content">
-            <div className="slide-eyebrow">06 · OLAP Live: Traiettoria delle Hit Locali</div>
+            <div className="slide-eyebrow">06 · Metodologia OLAP: Il Flusso Spazio-Temporale</div>
             <h2 className="slide-title">Operazioni OLAP: Drill-Down, Roll-Up & Pivot</h2>
             <p className="slide-subtitle">
-              Naviga lungo le gerarchie dimensionali del tempo e dello spazio per studiare come le canzoni nascono a livello locale e se riescono a scalare i mercati globali.
+              Navighiamo lungo le gerarchie dimensionali per analizzare come e se una hit locale riesce a superare le barriere ed effettuare un **Roll-Up** a livello globale, o se rimane confinata localmente.
             </p>
 
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', marginBottom: '16px', background: 'rgba(255,255,255,0.03)', padding: '12px 16px', borderRadius: '12px', border: '1px solid var(--border-light)', alignItems: 'center' }}>
-              <span style={{ fontSize: '0.85rem', fontWeight: 'bold', color: 'var(--accent-purple)' }}>Selettori:</span>
+              <span style={{ fontSize: '0.85rem', fontWeight: 'bold', color: 'var(--accent-purple)' }}>Selettori Gerarchici:</span>
               
               {selectedOlapOp !== 'rollup' && selectedOlapOp !== 'pivot' && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -1515,7 +1515,7 @@ function App() {
                   style={{ padding: '10px 14px', fontSize: '0.85rem', textAlign: 'left', display: 'flex', flexDirection: 'column', gap: '2px', background: selectedOlapOp === 'drill' ? 'rgba(168,85,247,0.15)' : '', borderColor: selectedOlapOp === 'drill' ? 'var(--accent-purple)' : '' }}
                 >
                   <strong style={{ color: selectedOlapOp === 'drill' ? 'var(--accent-purple)' : '#fff' }}>3. DRILL-DOWN (Dettaglio)</strong>
-                  <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Scende dal livello di aggregazione Anno a quello di dettaglio Settimana.</span>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Scende dal livello di aggregazione Anno a quello di dettaglio Settimana per analizzare la stagionalità.</span>
                 </button>
                 <button 
                   className={`btn-secondary ${selectedOlapOp === 'rollup' ? 'active' : ''}`}
@@ -1523,7 +1523,7 @@ function App() {
                   style={{ padding: '10px 14px', fontSize: '0.85rem', textAlign: 'left', display: 'flex', flexDirection: 'column', gap: '2px', background: selectedOlapOp === 'rollup' ? 'rgba(168,85,247,0.15)' : '', borderColor: selectedOlapOp === 'rollup' ? 'var(--accent-purple)' : '' }}
                 >
                   <strong style={{ color: selectedOlapOp === 'rollup' ? 'var(--accent-purple)' : '#fff' }}>4. ROLL-UP (Aggregazione)</strong>
-                  <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Sale passando dal livello nazione a quello Globale (GL) per quella settimana.</span>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Sale passando dal livello nazione a quello Globale (GL) per verificare la penetrazione nei mercati globali.</span>
                 </button>
                 <button 
                   className={`btn-secondary ${selectedOlapOp === 'pivot' ? 'active' : ''}`}
@@ -1531,7 +1531,7 @@ function App() {
                   style={{ padding: '10px 14px', fontSize: '0.85rem', textAlign: 'left', display: 'flex', flexDirection: 'column', gap: '2px', background: selectedOlapOp === 'pivot' ? 'rgba(168,85,247,0.15)' : '', borderColor: selectedOlapOp === 'pivot' ? 'var(--accent-purple)' : '' }}
                 >
                   <strong style={{ color: selectedOlapOp === 'pivot' ? 'var(--accent-purple)' : '#fff' }}>5. PIVOT (Rotazione)</strong>
-                  <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Ruota l'asse per confrontare i dati per Fascia di Reddito.</span>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Ruota l'asse di analisi per confrontare le feature acustiche per Fascia di Reddito.</span>
                 </button>
               </div>
 
@@ -1581,14 +1581,14 @@ function App() {
         
         return (
           <div className="slide-content">
-            <div className="slide-eyebrow">07 · OLAP Dinamico & Simulatore What-If</div>
-            <h2 className="slide-title">Il Simulatore What-If: Calibrare la Resistenza Culturale</h2>
+            <div className="slide-eyebrow">07 · Risoluzione: Il Simulatore What-If di Allineamento Culturale</div>
+            <h2 className="slide-title">Modello Predittivo What-If: Calibrare la 'Ricetta' di una Hit</h2>
             <p className="slide-subtitle">
-              Modella l'interazione tra forze di omologazione globale e preferenze locali, ricalcolando la classifica in tempo reale.
+              Come può un artista o un'etichetta discografica prevedere il posizionamento in classifica? Regolando i pesi di allineamento acustico locale rispetto alla popolarità globale, il simulatore ricalcola istantaneamente la classifica.
             </p>
 
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', marginBottom: '16px', background: 'rgba(255,255,255,0.03)', padding: '10px 16px', borderRadius: '12px', border: '1px solid var(--border-light)', alignItems: 'center' }}>
-              <span style={{ fontSize: '0.85rem', fontWeight: 'bold', color: 'var(--accent-purple)' }}>Parametri:</span>
+              <span style={{ fontSize: '0.85rem', fontWeight: 'bold', color: 'var(--accent-purple)' }}>Parametri di Simulazione:</span>
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                 <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Paese:</label>
                 <select 
@@ -1617,7 +1617,7 @@ function App() {
 
             <div className="slide-live-panel" style={{ gridTemplateColumns: '300px 1fr' }}>
               <div className="glass-panel" style={{ padding: '20px', marginBottom: 0, display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                <h4 style={{ fontSize: '1rem', color: 'var(--accent-purple)', marginBottom: 0 }}>Pesi Modello</h4>
+                <h4 style={{ fontSize: '1rem', color: 'var(--accent-purple)', marginBottom: 0 }}>Pesi del Modello</h4>
                 
                 <div className="slider-group">
                   <div className="slider-item">
@@ -1658,12 +1658,12 @@ function App() {
                 </div>
 
                 <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', lineHeight: '1.4', marginTop: 'auto' }}>
-                  <strong>Cosa succede?</strong> Aumentando l'Identità Locale, i brani che resistono in classifica salgono, mentre aumentando la Popolarità Globale emergono le hit mondiali standardizzate.
+                  <strong>Cosa succede?</strong> Aumentando l'Identità Locale, i brani che si allineano con la firma acustica storica del paese salgono, dimostrando che non si può vincere solo col marketing globale.
                 </div>
               </div>
               
               <div className="glass-panel" style={{ padding: '16px', marginBottom: 0, display: 'grid', gridTemplateRows: 'auto 1fr', gap: '12px' }}>
-                <h4 style={{ fontSize: '0.95rem', margin: 0 }}>Simulazione Ricalcolata in Tempo Reale</h4>
+                <h4 style={{ fontSize: '0.95rem', margin: 0 }}>Classifica Simulata (DuckDB-WASM Live)</h4>
                 
                 <div style={{ width: '100%', height: '170px' }}>
                   <ResponsiveContainer width="100%" height="100%">
@@ -1689,10 +1689,10 @@ function App() {
 
         return (
           <div className="slide-content">
-            <div className="slide-eyebrow">08 · Interpretazione Culturale con AI</div>
-            <h2 className="slide-title">L'Etnomusicologo Virtuale con AI & Caching MD5</h2>
+            <div className="slide-eyebrow">08 · Sintesi Qualitativa: L'Etnomusicologo Virtuale</div>
+            <h2 className="slide-title">Interpretazione Etnomusicologica con Intelligenza Artificiale</h2>
             <p className="slide-subtitle">
-              Interpreta live i driver culturali dietro alle classifiche tramite Gemma 4, ottimizzato con cache MD5 del sotto-cubo OLAP.
+              I dati quantitativi trovano spiegazione nei fattori antropologici e sociolinguistici. L'agente AI analizza le metriche live del database e genera un report interpretativo contestuale.
             </p>
             
             <div className="glass-panel" style={{ marginBottom: 0, padding: '20px' }}>
@@ -1785,20 +1785,20 @@ function App() {
       case 9:
         return (
           <div className="slide-content">
-            <div className="slide-eyebrow">09 · Conclusioni</div>
-            <h2 className="slide-title">Conclusioni: La Diversità Preservata</h2>
+            <div className="slide-eyebrow">09 · Conclusioni: La Vittoria del Locale sul Globale</div>
+            <h2 className="slide-title">La Frammentazione come Barriera Culturale</h2>
             <div className="slide-card-grid">
               <div className="slide-card">
-                <h4>1. La Resistenza Culturale Esiste</h4>
-                <p>I dati provano che la globalizzazione musicale non ha standardizzato i gusti locali. Le barriere linguistiche e l'identità locale proteggono stabilmente le preferenze dei mercati nazionali.</p>
+                <h4>1. Omologazione Respinta</h4>
+                <p>La globalizzazione e l'algoritmo di raccomandazione dello streaming non hanno uniformato i gusti. I mercati locali rimangono fieri custodi della propria identità acustica ed espressiva.</p>
               </div>
               <div className="slide-card" style={{ borderLeft: '3px solid var(--accent-purple)' }}>
-                <h4>2. Prestazioni OLAP in-browser</h4>
-                <p>L'elaborazione in-browser tramite DuckDB-WASM consente di eseguire aggregazioni e join complessi su 2+ milioni di righe in millisecondi direttamente nel client.</p>
+                <h4>2. Il Valore del Data Warehouse</h4>
+                <p>La progettazione multidimensionale ROLAP ha permesso di aggregare e analizzare oltre 2.1 milioni di righe, dimostrando scientificamente dinamiche invisibili sui dati piatti.</p>
               </div>
               <div className="slide-card">
-                <h4>3. Dati nel Report, Storia nel Pitch</h4>
-                <p>I dettagli tecnici (Fase 1, 2, 3, DFM e Data Quality) risiedono nel Report di Progetto scritto; la presentazione racconta la storia etnomusicologica ed economica dei dati.</p>
+                <h4>3. Inesistenza della Ricetta Unica</h4>
+                <p>Chi produce e distribuisce musica deve abbandonare la logica di una 'formula globale standardizzata' e comprendere le preferenze acustiche specifiche del mercato di riferimento.</p>
               </div>
             </div>
             
