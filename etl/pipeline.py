@@ -368,11 +368,13 @@ def run_etl():
 
                     # fact row: date_key, country_key, track_key, artist_key, album_key,
                     # daily_rank, popularity, daily_movement, weekly_movement,
-                    # chart_presence (1), days_on_chart, n_countries_charted, peak_rank
+                    # chart_presence (1), days_on_chart, n_countries_charted, peak_rank,
+                    # performance_score (= 51 - daily_rank, fully additive)
                     batch.append((
                         date_key, country_key, track_key, artist_key, album_key,
                         daily_rank, popularity, daily_mov, weekly_mov,
-                        1, days_on_chart, n_countries_charted, peak_rank
+                        1, days_on_chart, n_countries_charted, peak_rank,
+                        51 - daily_rank
                     ))
 
             if len(batch) >= CHUNK_SIZE:
@@ -381,7 +383,8 @@ def run_etl():
                     "INSERT INTO fact_chart_entry ("
                     "  date_key, country_key, track_key, artist_key, album_key, "
                     "  daily_rank, popularity, daily_movement, weekly_movement, "
-                    "  chart_presence, days_on_chart, n_countries_charted, peak_rank"
+                    "  chart_presence, days_on_chart, n_countries_charted, peak_rank, "
+                    "  performance_score"
                     ") VALUES %s",
                     batch
                 )
@@ -396,7 +399,8 @@ def run_etl():
                 "INSERT INTO fact_chart_entry ("
                 "  date_key, country_key, track_key, artist_key, album_key, "
                 "  daily_rank, popularity, daily_movement, weekly_movement, "
-                "  chart_presence, days_on_chart, n_countries_charted, peak_rank"
+                "  chart_presence, days_on_chart, n_countries_charted, peak_rank, "
+                "  performance_score"
                 ") VALUES %s",
                 batch
             )

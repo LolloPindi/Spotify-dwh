@@ -112,6 +112,10 @@ CREATE TABLE fact_chart_entry (
     days_on_chart       INTEGER     NOT NULL,                    -- Running total dei giorni in classifica per track in country fino a questa data
     n_countries_charted SMALLINT    NOT NULL,                    -- Numero totale di paesi in cui questo brano è entrato in classifica fino a questa data
     peak_rank           SMALLINT    NOT NULL,                    -- Miglior rank ottenuto fino a questa data per track in country
+    performance_score   SMALLINT    NOT NULL CHECK (performance_score BETWEEN 1 AND 50),
+                                                                 -- = 51 - daily_rank; COMPLETAMENTE ADDITIVA lungo tutte le dimensioni.
+                                                                 -- Converte il rank ordinale in un punteggio continuo (50=vetta, 1=ultima posizione).
+                                                                 -- Consente SUM su genere/paese/tempo senza distorsioni ordinali.
 
     -- Grain unico della tabella dei fatti per gestire la relazione N:M track-artist
     UNIQUE (date_key, country_key, track_key, artist_key, album_key)
@@ -128,3 +132,25 @@ CREATE INDEX idx_fact_track     ON fact_chart_entry(track_key);
 CREATE INDEX idx_fact_artist    ON fact_chart_entry(artist_key);
 CREATE INDEX idx_fact_album     ON fact_chart_entry(album_key);
 CREATE INDEX idx_fact_composite ON fact_chart_entry(date_key, country_key, track_key);
+
+-- ------------------------------------------------------------
+-- VISTA v_chart_event — grana evento (senza dimensione artista)
+-- Usare per aggregazioni che NON passano per l'asse artista,
+-- dove il fanning-out genererebbe doppio conteggio.
+-- ------------------------------------------------------------
+CREATE VIEW v_chart_event AS
+SELECT DISTINCT
+    date_key,
+    country_key,
+    track_key,
+    album_key,
+    daily_rank,
+    popularity,
+    daily_movement,
+    weekly_movement,
+    chart_presence,
+    days_on_chart,
+    n_countries_charted,
+    peak_rank,
+    performance_score
+FROM fact_chart_entry;
