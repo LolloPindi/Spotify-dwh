@@ -1169,6 +1169,11 @@ function App() {
     return num.toLocaleString();
   };
 
+  const formatCurrency = (num) => {
+    if (!num) return "N/D";
+    return "$" + Math.round(num).toLocaleString();
+  };
+
   const renderSlide = () => {
     switch (currentSlide) {
       case 1:
