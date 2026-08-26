@@ -107,6 +107,8 @@ function App() {
   const [genreDistribution, setGenreDistribution] = useState([]);
   const [selectedGeoCategory, setSelectedGeoCategory] = useState("continent");
   const [anomalyData, setAnomalyData] = useState([]);
+  const [paradoxData, setParadoxData] = useState([]);
+  const [timelineData, setTimelineData] = useState([]);
 
   // What-If Simulation
   const [localWeight, setLocalWeight] = useState(50);
@@ -529,6 +531,56 @@ function App() {
         LIMIT 10
       `);
       setYearlyGlobalSongs(yearlyGlobalRes.toArray().map(cleanRow));
+
+      // Fetch Paradox Data (Top 5 Global vs Local Rank)
+      const paradoxRes = await dbConn.query(`
+        SELECT 
+          t.name AS track_name, 
+          f_gl.daily_rank AS rank_global, 
+          COALESCE(f_loc.daily_rank, 51) AS rank_local
+        FROM fact_chart_entry f_gl
+        JOIN dim_paese p_gl ON f_gl.country_key = p_gl.country_key AND p_gl.country_code = 'GL'
+        JOIN dim_traccia t ON f_gl.track_key = t.track_key
+        JOIN dim_tempo tm ON f_gl.date_key = tm.date_key
+        LEFT JOIN (
+          SELECT f2.track_key, f2.daily_rank, f2.date_key
+          FROM fact_chart_entry f2
+          JOIN dim_paese p_loc ON f2.country_key = p_loc.country_key AND p_loc.country_code = '${selectedCountry}'
+        ) f_loc ON f_gl.track_key = f_loc.track_key AND f_gl.date_key = f_loc.date_key
+        WHERE tm.year = ${selectedTimeframe.year} AND tm.week = ${selectedTimeframe.week}
+        ORDER BY f_gl.daily_rank ASC
+        LIMIT 5
+      `);
+      const paradoxRows = paradoxRes.toArray().map(cleanRow);
+      setParadoxData(paradoxRows.map(r => ({
+        name: r.track_name.substring(0, 15) + (r.track_name.length > 15 ? '..' : ''),
+        'Classifica Globale': 51 - r.rank_global,
+        'Classifica Locale': 51 - r.rank_local,
+        originalGlobal: r.rank_global,
+        originalLocal: r.rank_local === 51 ? 'Non in Top 50' : '#' + r.rank_local
+      })));
+
+      // Fetch Timeline Data (Valence comparison over time between Global and Local)
+      const timelineRes = await dbConn.query(`
+        SELECT 
+          t.year, 
+          t.week,
+          AVG(CASE WHEN p.country_code = 'GL' THEN tr.valence END) AS val_gl,
+          AVG(CASE WHEN p.country_code = '${selectedCountry}' THEN tr.valence END) AS val_loc
+        FROM fact_chart_entry f
+        JOIN dim_paese p ON f.country_key = p.country_key
+        JOIN dim_traccia tr ON f.track_key = tr.track_key
+        JOIN dim_tempo t ON f.date_key = t.date_key
+        WHERE p.country_code IN ('GL', '${selectedCountry}')
+        GROUP BY t.year, t.week
+        ORDER BY t.year, t.week
+      `);
+      const timelineRows = timelineRes.toArray().map(cleanRow);
+      setTimelineData(timelineRows.map(r => ({
+        name: 'W' + r.week + '/' + String(r.year).substring(2),
+        'Globale': parseFloat(r.val_gl || 0),
+        'Locale': parseFloat(r.val_loc || 0)
+      })));
 
       // Auto run simulation and benchmark
       runWhatIfSimulation();
@@ -1142,25 +1194,68 @@ function App() {
           </div>
         );
       case 2:
+        const countryANameS2 = countries.find(c => c.country_code === selectedCountry)?.country_name || selectedCountry;
         return (
           <div className="slide-content">
             <div className="slide-eyebrow">01 · Il Problema: Il Mito dell'Omologazione Musicale</div>
-            <h2 className="slide-title">Il Paradosso della Hit Universale (Hook)</h2>
+            <h2 className="slide-title">Il Paradosso della Hit Universale</h2>
             <p className="slide-subtitle">
-              Spotify distribuisce la stessa musica a miliardi di utenti, suggerendo che i confini geografici siano superati. Ma i dati rivelano una profonda discrepanza:
+              Spotify distribuisce gli stessi brani ovunque, inducendo all'idea di un gusto mondiale omogeneo. Ma i dati smentiscono questa teoria:
             </p>
-            <div className="slide-card-grid">
-              <div className="slide-card">
-                <h4>La Promessa delle Piattaforme</h4>
-                <p>La distribuzione digitale globale induce a credere che i consumatori mondiali abbiano ormai gusti omologati su un'unica formula acustica standard.</p>
+            
+            <div className="slide-live-panel" style={{ gridTemplateColumns: '1.2fr 1fr', gap: '20px', display: 'grid' }}>
+              <div className="glass-panel" style={{ padding: '20px', marginBottom: 0 }}>
+                <h4 style={{ fontSize: '1rem', color: 'var(--accent-blue)', marginBottom: '12px' }}>
+                  Top 5 Globali vs Classifica in {countryANameS2} (Settimana {selectedTimeframe.week}/{selectedTimeframe.year})
+                </h4>
+                <div style={{ width: '100%', height: '220px' }}>
+                  {paradoxData.length > 0 ? (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={paradoxData} margin={{ top: 10, right: 10, left: -20, bottom: 5 }}>
+                        <XAxis dataKey="name" tick={{ fill: '#9ea2b5', fontSize: 10 }} />
+                        <YAxis tick={{ fill: '#9ea2b5', fontSize: 10 }} domain={[0, 50]} />
+                        <Tooltip 
+                          contentStyle={{ background: '#181c26', border: '1px solid var(--border-light)' }} 
+                          content={({ active, payload }) => {
+                            if (active && payload && payload.length) {
+                              const data = payload[0].payload;
+                              return (
+                                <div style={{ background: '#181c26', border: '1px solid var(--border-light)', padding: '8px', borderRadius: '4px' }}>
+                                  <p style={{ fontWeight: 'bold', margin: 0, fontSize: '0.85rem' }}>{data.name}</p>
+                                  <p style={{ margin: '2px 0', fontSize: '0.75rem', color: 'var(--accent-blue)' }}>Pos. Globale: #{data.originalGlobal}</p>
+                                  <p style={{ margin: '2px 0', fontSize: '0.75rem', color: 'var(--accent-green)' }}>Pos. in {countryANameS2}: {data.originalLocal}</p>
+                                </div>
+                              );
+                            }
+                            return null;
+                          }}
+                        />
+                        <Legend wrapperStyle={{ fontSize: 10 }} />
+                        <Bar dataKey="Classifica Globale" name="Pos. Globale (Invertita)" fill="var(--accent-blue)" radius={[4, 4, 0, 0]} />
+                        <Bar dataKey="Classifica Locale" name={`Pos. in ${countryANameS2} (Invertita)`} fill="var(--accent-green)" radius={[4, 4, 0, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <div style={{ display: 'flex', height: '100%', alignItems: 'center', justifyContent: 'center', color: 'var(--text-secondary)' }}>
+                      Caricamento dati in corso...
+                    </div>
+                  )}
+                </div>
               </div>
-              <div className="slide-card">
-                <h4>Il Paradosso nei Dati</h4>
-                <p>Brani con un punteggio di popolarità globale superiore a 90/100 falliscono sistematicamente nel posizionarsi nelle Top 10 nazionali, respinti da barriere culturali ed etnico-linguistiche.</p>
-              </div>
-              <div className="slide-card" style={{ borderLeft: '3px solid var(--accent-purple)' }}>
-                <h4>La Domanda di Ricerca</h4>
-                <p>Esiste davvero una ricetta acustica universale per il successo, o ogni mercato locale esige una combinazione specifica ed esclusiva di caratteristiche acustiche?</p>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', justifyContent: 'center' }}>
+                <div className="slide-card" style={{ padding: '12px 16px' }}>
+                  <h4 style={{ color: 'var(--accent-blue)', fontSize: '0.9rem', marginBottom: '4px' }}>La Promessa delle Piattaforme</h4>
+                  <p style={{ fontSize: '0.8rem', margin: 0 }}>La distribution digitale globale induce a credere che i consumatori mondiali abbiano ormai gusti omologati su un'unica formula acustica standard.</p>
+                </div>
+                <div className="slide-card" style={{ padding: '12px 16px', borderLeft: '3px solid var(--accent-purple)' }}>
+                  <h4 style={{ color: 'var(--accent-purple)', fontSize: '0.9rem', marginBottom: '4px' }}>La Discrepanza (Il Paradosso)</h4>
+                  <p style={{ fontSize: '0.8rem', margin: 0 }}>Il grafico mostra che i brani più ascoltati al mondo (barre blu) non riescono a posizionarsi in classifica a livello locale (barre verdi basse o nulle), venendo respinti.</p>
+                </div>
+                <div className="slide-card" style={{ padding: '12px 16px' }}>
+                  <h4 style={{ color: 'var(--accent-green)', fontSize: '0.9rem', marginBottom: '4px' }}>Domanda di Ricerca</h4>
+                  <p style={{ fontSize: '0.8rem', margin: 0 }}>Quali barriere acustiche o geopolitiche deviano le preferenze di un mercato locale? Esiste una ricetta acustica locale?</p>
+                </div>
               </div>
             </div>
           </div>
@@ -1783,30 +1878,61 @@ function App() {
           </div>
         );
       case 9:
+        const countryANameS9 = countries.find(c => c.country_code === selectedCountry)?.country_name || selectedCountry;
         return (
           <div className="slide-content">
             <div className="slide-eyebrow">09 · Conclusioni: La Vittoria del Locale sul Globale</div>
             <h2 className="slide-title">La Frammentazione come Barriera Culturale</h2>
-            <div className="slide-card-grid">
-              <div className="slide-card">
-                <h4>1. Omologazione Respinta</h4>
-                <p>La globalizzazione e l'algoritmo di raccomandazione dello streaming non hanno uniformato i gusti. I mercati locali rimangono fieri custodi della propria identità acustica ed espressiva.</p>
+            <p className="slide-subtitle">
+              La divergenza acustica non è un fenomeno passeggero. Il trend della felicità acustica (Valence) mostra una spaccatura costante e strutturale nel tempo:
+            </p>
+
+            <div className="slide-live-panel" style={{ gridTemplateColumns: '1.2fr 1fr', gap: '20px', display: 'grid' }}>
+              <div className="glass-panel" style={{ padding: '20px', marginBottom: 0 }}>
+                <h4 style={{ fontSize: '1rem', color: 'var(--accent-purple)', marginBottom: '12px' }}>
+                  Evoluzione Valence Media: Globale vs {countryANameS9} (2023 - 2025)
+                </h4>
+                <div style={{ width: '100%', height: '200px' }}>
+                  {timelineData.length > 0 ? (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={timelineData} margin={{ top: 10, right: 10, left: -20, bottom: 5 }}>
+                        <XAxis dataKey="name" tick={{ fill: '#9ea2b5', fontSize: 8 }} interval={Math.ceil(timelineData.length / 10)} />
+                        <YAxis tick={{ fill: '#9ea2b5', fontSize: 10 }} domain={[0.4, 0.7]} />
+                        <Tooltip contentStyle={{ background: '#181c26', border: '1px solid var(--border-light)' }} />
+                        <Legend wrapperStyle={{ fontSize: 10 }} />
+                        <Line type="monotone" dataKey="Globale" stroke="var(--accent-blue)" strokeWidth={2} dot={false} />
+                        <Line type="monotone" dataKey="Locale" name={countryANameS9} stroke="var(--accent-green)" strokeWidth={2} dot={false} strokeDasharray="3 3" />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <div style={{ display: 'flex', height: '100%', alignItems: 'center', justifyContent: 'center', color: 'var(--text-secondary)' }}>
+                      Caricamento dati in corso...
+                    </div>
+                  )}
+                </div>
               </div>
-              <div className="slide-card" style={{ borderLeft: '3px solid var(--accent-purple)' }}>
-                <h4>2. Il Valore del Data Warehouse</h4>
-                <p>La progettazione multidimensionale ROLAP ha permesso di aggregare e analizzare oltre 2.1 milioni di righe, dimostrando scientificamente dinamiche invisibili sui dati piatti.</p>
-              </div>
-              <div className="slide-card">
-                <h4>3. Inesistenza della Ricetta Unica</h4>
-                <p>Chi produce e distribuisce musica deve abbandonare la logica di una 'formula globale standardizzata' e comprendere le preferenze acustiche specifiche del mercato di riferimento.</p>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', justifyContent: 'center' }}>
+                <div className="slide-card" style={{ padding: '10px 14px' }}>
+                  <h4 style={{ color: 'var(--accent-green)', fontSize: '0.85rem', marginBottom: '2px' }}>1. Omologazione Respinta</h4>
+                  <p style={{ fontSize: '0.75rem', margin: 0 }}>Le preferenze acustiche nazionali rimangono strutturalmente distinte dal trend globale; non vi è alcuna convergenza dei gusti.</p>
+                </div>
+                <div className="slide-card" style={{ padding: '10px 14px', borderLeft: '3px solid var(--accent-purple)' }}>
+                  <h4 style={{ color: 'var(--accent-purple)', fontSize: '0.85rem', marginBottom: '2px' }}>2. Utilità del Data Warehouse</h4>
+                  <p style={{ fontSize: '0.75rem', margin: 0 }}>La modellazione multidimensionale (DWH ROLAP) ha rivelato l'esistenza di trend costanti invisibili sui dati piatti.</p>
+                </div>
+                <div className="slide-card" style={{ padding: '10px 14px' }}>
+                  <h4 style={{ color: 'var(--accent-blue)', fontSize: '0.85rem', marginBottom: '2px' }}>3. Non esiste la 'Hit Universale'</h4>
+                  <p style={{ fontSize: '0.75rem', margin: 0 }}>I produttori musicali devono adattare le caratteristiche acustiche delle canzoni alle singole aree geopolitiche per posizionarsi.</p>
+                </div>
               </div>
             </div>
             
-            <div style={{ marginTop: '30px', display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
-              <a href="https://github.com/LolloPindi/Spotify-dwh" target="_blank" className="btn-secondary" style={{ textDecoration: 'none' }}>
+            <div style={{ marginTop: '20px', display: 'flex', gap: '16px', flexWrap: 'wrap', justifyContent: 'center' }}>
+              <a href="https://github.com/LolloPindi/Spotify-dwh" target="_blank" className="btn-secondary" style={{ textDecoration: 'none', padding: '6px 12px', fontSize: '0.8rem' }}>
                 Codice Progetto (GitHub)
               </a>
-              <a href="https://public.tableau.com/" target="_blank" className="btn-secondary" style={{ textDecoration: 'none' }}>
+              <a href="https://public.tableau.com/" target="_blank" className="btn-secondary" style={{ textDecoration: 'none', padding: '6px 12px', fontSize: '0.8rem' }}>
                 Dashboard Tableau Public
               </a>
             </div>
