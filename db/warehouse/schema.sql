@@ -134,16 +134,17 @@ CREATE INDEX idx_bridge_group  ON bridge_artista(artist_group_key);
 CREATE INDEX idx_bridge_artist ON bridge_artista(artist_key);
 
 -- ------------------------------------------------------------
--- FACT_CHART_ENTRY — Grana evento: (brano, paese, data)
--- La relazione N:M con dim_artista è risolta via bridge_artista.
--- 2.110.286 righe — nessuna espansione da fanning-out.
+-- FACT_CHART_ENTRY — partizionata RANGE su date_key
+-- Grana evento: (brano, paese, data) — 2.110.286 righe.
+-- PARTITION BY RANGE abilita Partition Pruning sulle query temporali:
+-- una query su un singolo anno scannerizza solo la partizione di quell'anno.
 -- ------------------------------------------------------------
 CREATE TABLE fact_chart_entry (
-    fact_key             SERIAL   PRIMARY KEY,
-    date_key             INTEGER  NOT NULL REFERENCES dim_tempo(date_key),
+    fact_key             BIGINT   GENERATED ALWAYS AS IDENTITY,
+    date_key             INTEGER  NOT NULL,  -- YYYYMMDD; logical FK → dim_tempo
     country_key          INTEGER  NOT NULL REFERENCES dim_paese(country_key),
     track_key            INTEGER  NOT NULL REFERENCES dim_traccia(track_key),
-    artist_group_key     INTEGER  NOT NULL,  -- FK logica → bridge_artista.artist_group_key
+    artist_group_key     INTEGER  NOT NULL,  -- FK logica → bridge_artista
     album_key            INTEGER  NOT NULL REFERENCES dim_album(album_key),
 
     -- Misure fisiche
@@ -159,19 +160,43 @@ CREATE TABLE fact_chart_entry (
     peak_rank            SMALLINT NOT NULL,
     performance_score    SMALLINT NOT NULL CHECK (performance_score BETWEEN 1 AND 50),
     -- = 51 - daily_rank; COMPLETAMENTE ADDITIVA su tutte le dimensioni.
-    -- Converte rank ordinale in punteggio cardinale (50=vetta, 1=ultima posizione).
 
-    -- Vincolo di grain: un evento di classifica è unico per (brano, paese, data)
-    UNIQUE (date_key, country_key, track_key, album_key)
-);
+    PRIMARY KEY (fact_key, date_key),
+    UNIQUE (date_key, country_key, track_key, album_key)  -- vincolo di grain
+) PARTITION BY RANGE (date_key);
 
 COMMENT ON TABLE fact_chart_entry IS
-    'Fact table a grana evento (brano × paese × data): 2,1M righe. '
-    'Analisi per artista: JOIN via bridge_artista usando artist_group_key. '
-    'Aggregazioni pesate: moltiplicare le misure per bridge_artista.weight_factor.';
+    'Fact table partizionata per range annuale su date_key. '
+    'Grana evento (brano × paese × data): 2,1M righe. '
+    'Analisi per artista: JOIN via bridge_artista usando artist_group_key.';
+
+-- ------------------------------------------------------------
+-- PARTIZIONI ANNUALI — una per anno del dataset
+-- Il Partition Pruning di PostgreSQL seleziona automaticamente
+-- le partizioni rilevanti in base al predicato su date_key.
+-- ------------------------------------------------------------
+CREATE TABLE fact_y2017 PARTITION OF fact_chart_entry
+    FOR VALUES FROM (20170101) TO (20180101);
+CREATE TABLE fact_y2018 PARTITION OF fact_chart_entry
+    FOR VALUES FROM (20180101) TO (20190101);
+CREATE TABLE fact_y2019 PARTITION OF fact_chart_entry
+    FOR VALUES FROM (20190101) TO (20200101);
+CREATE TABLE fact_y2020 PARTITION OF fact_chart_entry
+    FOR VALUES FROM (20200101) TO (20210101);
+CREATE TABLE fact_y2021 PARTITION OF fact_chart_entry
+    FOR VALUES FROM (20210101) TO (20220101);
+CREATE TABLE fact_y2022 PARTITION OF fact_chart_entry
+    FOR VALUES FROM (20220101) TO (20230101);
+CREATE TABLE fact_y2023 PARTITION OF fact_chart_entry
+    FOR VALUES FROM (20230101) TO (20240101);
+CREATE TABLE fact_y2024 PARTITION OF fact_chart_entry
+    FOR VALUES FROM (20240101) TO (20250101);
+CREATE TABLE fact_default PARTITION OF fact_chart_entry DEFAULT;
 
 -- ------------------------------------------------------------
 -- INDICI per ottimizzazione OLAP
+-- Gli indici dichiarati sul parent vengono propagati automaticamente
+-- a tutte le partizioni (PostgreSQL 11+).
 -- ------------------------------------------------------------
 CREATE INDEX idx_fact_date         ON fact_chart_entry(date_key);
 CREATE INDEX idx_fact_country      ON fact_chart_entry(country_key);
@@ -179,18 +204,3 @@ CREATE INDEX idx_fact_track        ON fact_chart_entry(track_key);
 CREATE INDEX idx_fact_artist_group ON fact_chart_entry(artist_group_key);
 CREATE INDEX idx_fact_album        ON fact_chart_entry(album_key);
 CREATE INDEX idx_fact_composite    ON fact_chart_entry(date_key, country_key, track_key);
-
--- ------------------------------------------------------------
--- NOTA: Partitioning fisico (ottimizzazione consigliata per produzione)
--- La fact table può essere partizionata per range su date_key:
---
---   CREATE TABLE fact_chart_entry (...) PARTITION BY RANGE (date_key);
---   CREATE TABLE fact_2017 PARTITION OF fact_chart_entry
---       FOR VALUES FROM (20170101) TO (20180101);
---   CREATE TABLE fact_2018 PARTITION OF fact_chart_entry
---       FOR VALUES FROM (20180101) TO (20190101);
---   ... (una partizione per anno)
---
--- Il partizionamento abilita partition pruning sulle query temporali
--- e manutenzione offline delle partizioni storiche.
--- ------------------------------------------------------------
