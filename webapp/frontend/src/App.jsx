@@ -157,11 +157,15 @@ function App() {
       case 'slice':
         // SLICE: Fissa una singola dimensione (Paese) senza vincoli di tempo (mostra i top brani di sempre di quel paese)
         queryText = `
-          SELECT tr.name AS Track, string_agg(DISTINCT a.name, ', ') AS Artist, MIN(f.daily_rank) AS Rank, ROUND(AVG(tr.valence), 3) AS Info
+          SELECT tr.name AS Track,
+                 string_agg(DISTINCT a.name, ', ') AS Artist,
+                 MIN(f.daily_rank) AS Rank,
+                 ROUND(AVG(tr.valence), 3) AS Info
           FROM fact_chart_entry f
           JOIN dim_paese p ON f.country_key = p.country_key
           JOIN dim_traccia tr ON f.track_key = tr.track_key
-          JOIN dim_artista a ON f.artist_key = a.artist_key
+          JOIN bridge_artista ba ON f.artist_group_key = ba.artist_group_key
+          JOIN dim_artista a ON ba.artist_key = a.artist_key
           WHERE p.country_code = '${olapCountry}'
           GROUP BY tr.name, tr.valence
           ORDER BY Rank LIMIT 5
@@ -170,31 +174,40 @@ function App() {
       case 'dice':
         // DICE: Filtra contemporaneamente su più dimensioni (Paese AND Genere AND Anno AND Settimana)
         queryText = `
-          SELECT tr.name AS Track, string_agg(DISTINCT a.name, ', ') AS Artist, MIN(f.daily_rank) AS Rank, coalesce(tr.genre, a.genre) AS Info
+          SELECT tr.name AS Track,
+                 string_agg(DISTINCT a.name, ', ') AS Artist,
+                 MIN(f.daily_rank) AS Rank,
+                 COALESCE(gtr.macro_genre, 'Other') AS Info
           FROM fact_chart_entry f
           JOIN dim_paese p ON f.country_key = p.country_key
           JOIN dim_traccia tr ON f.track_key = tr.track_key
-          JOIN dim_artista a ON f.artist_key = a.artist_key
+          LEFT JOIN dim_genere gtr ON tr.genre_key = gtr.genre_key
+          JOIN bridge_artista ba ON f.artist_group_key = ba.artist_group_key
+          JOIN dim_artista a ON ba.artist_key = a.artist_key
           JOIN dim_tempo tmp ON f.date_key = tmp.date_key
-          WHERE p.country_code = '${olapCountry}' 
-            AND coalesce(tr.genre, a.genre) = '${olapGenre}' 
-            AND tmp.year = ${olapYear} 
+          WHERE p.country_code = '${olapCountry}'
+            AND gtr.macro_genre LIKE '%${olapGenre}%'
+            AND tmp.year = ${olapYear}
             AND tmp.week = ${olapWeek}
-          GROUP BY tr.name, coalesce(tr.genre, a.genre)
+          GROUP BY tr.name, gtr.macro_genre
           ORDER BY Rank LIMIT 5
         `;
         break;
       case 'drill':
         // DRILL-DOWN: Scende di dettaglio mostrando il record specifico della settimana all'interno dell'anno
         queryText = `
-          SELECT tr.name AS Track, string_agg(DISTINCT a.name, ', ') AS Artist, MIN(f.daily_rank) AS Rank, 'Anno: ' || tmp.year || ', Settimana: ' || tmp.week AS Info
+          SELECT tr.name AS Track,
+                 string_agg(DISTINCT a.name, ', ') AS Artist,
+                 MIN(f.daily_rank) AS Rank,
+                 'Anno: ' || tmp.year || ', Settimana: ' || tmp.week AS Info
           FROM fact_chart_entry f
           JOIN dim_paese p ON f.country_key = p.country_key
           JOIN dim_traccia tr ON f.track_key = tr.track_key
-          JOIN dim_artista a ON f.artist_key = a.artist_key
+          JOIN bridge_artista ba ON f.artist_group_key = ba.artist_group_key
+          JOIN dim_artista a ON ba.artist_key = a.artist_key
           JOIN dim_tempo tmp ON f.date_key = tmp.date_key
-          WHERE p.country_code = '${olapCountry}' 
-            AND tmp.year = ${olapYear} 
+          WHERE p.country_code = '${olapCountry}'
+            AND tmp.year = ${olapYear}
             AND tmp.week = ${olapWeek}
           GROUP BY tr.name, tmp.year, tmp.week
           ORDER BY Rank LIMIT 5
@@ -203,14 +216,18 @@ function App() {
       case 'rollup':
         // ROLL-UP: Aggrega salendo dal Paese selezionato al livello globale (GL) per quella settimana
         queryText = `
-          SELECT tr.name AS Track, string_agg(DISTINCT a.name, ', ') AS Artist, MIN(f.daily_rank) AS Rank, 'Classifica Globale (GL)' AS Info
+          SELECT tr.name AS Track,
+                 string_agg(DISTINCT a.name, ', ') AS Artist,
+                 MIN(f.daily_rank) AS Rank,
+                 'Classifica Globale (GL)' AS Info
           FROM fact_chart_entry f
           JOIN dim_paese p ON f.country_key = p.country_key
           JOIN dim_traccia tr ON f.track_key = tr.track_key
-          JOIN dim_artista a ON f.artist_key = a.artist_key
+          JOIN bridge_artista ba ON f.artist_group_key = ba.artist_group_key
+          JOIN dim_artista a ON ba.artist_key = a.artist_key
           JOIN dim_tempo tmp ON f.date_key = tmp.date_key
-          WHERE p.country_code = 'GL' 
-            AND tmp.year = ${olapYear} 
+          WHERE p.country_code = 'GL'
+            AND tmp.year = ${olapYear}
             AND tmp.week = ${olapWeek}
           GROUP BY tr.name
           ORDER BY Rank LIMIT 5
@@ -219,14 +236,18 @@ function App() {
       case 'pivot':
         // PIVOT: Ruota l'asse di analisi confrontando i dati per Fascia di Reddito invece che per territorio
         queryText = `
-          SELECT tr.name AS Track, string_agg(DISTINCT a.name, ', ') AS Artist, MIN(f.daily_rank) AS Rank, p.income_group AS Info
+          SELECT tr.name AS Track,
+                 string_agg(DISTINCT a.name, ', ') AS Artist,
+                 MIN(f.daily_rank) AS Rank,
+                 p.income_group AS Info
           FROM fact_chart_entry f
           JOIN dim_paese p ON f.country_key = p.country_key
           JOIN dim_traccia tr ON f.track_key = tr.track_key
-          JOIN dim_artista a ON f.artist_key = a.artist_key
+          JOIN bridge_artista ba ON f.artist_group_key = ba.artist_group_key
+          JOIN dim_artista a ON ba.artist_key = a.artist_key
           JOIN dim_tempo tmp ON f.date_key = tmp.date_key
-          WHERE p.income_group = '${olapIncomeGroup}' 
-            AND tmp.year = ${olapYear} 
+          WHERE p.income_group = '${olapIncomeGroup}'
+            AND tmp.year = ${olapYear}
             AND tmp.week = ${olapWeek}
           GROUP BY tr.name, p.income_group
           ORDER BY Rank LIMIT 5
@@ -363,10 +384,11 @@ function App() {
         setIncomeAudioData(incomeRes.toArray().map(cleanRow));
 
         const genreRes = await conn.query(`
-          SELECT genre, COUNT(*) AS artist_count
-          FROM dim_artista
-          WHERE genre IS NOT NULL AND genre != 'Other' AND genre != 'N/A'
-          GROUP BY genre
+          SELECT g.genre_name AS genre, COUNT(*) AS artist_count
+          FROM dim_artista a
+          JOIN dim_genere g ON a.genre_key = g.genre_key
+          WHERE g.macro_genre != 'Other'
+          GROUP BY g.genre_name
           ORDER BY artist_count DESC
           LIMIT 8
         `);
@@ -406,7 +428,7 @@ function App() {
 
   const getGenreSqlCondition = (genre) => {
     if (!genre || genre === 'All') return '';
-    return ` AND (coalesce(tr.genre, a.genre) = '${genre}')`;
+    return ` AND gtr.macro_genre LIKE '%${genre}%'`;
   };
 
   // 2. Fetch Dashboard Data on Filters Change
@@ -427,39 +449,45 @@ function App() {
       // Fetch Top Songs & Audio features
       const songsRes = await dbConn.query(`
         WITH weekly_stats AS (
-            SELECT 
+            SELECT
                 tr.name AS track_name,
-                string_agg(DISTINCT a.name, ', ') AS artist_names,
+                ANY_VALUE(f.artist_group_key) AS artist_group_key,
                 AVG(f.popularity) AS popularity,
                 COUNT(DISTINCT t.date_key) AS days_on_chart,
-                MIN(f.daily_rank) AS weekly_peak_rank,
                 MIN(f.peak_rank) AS peak_rank,
                 AVG(tr.danceability) AS danceability,
                 AVG(tr.energy) AS energy,
                 AVG(tr.valence) AS valence,
-                SUM(51 - f.daily_rank) AS weekly_score
+                SUM(f.performance_score) AS weekly_score
             FROM fact_chart_entry f
             JOIN dim_tempo t ON f.date_key = t.date_key
             JOIN dim_paese p ON f.country_key = p.country_key
             JOIN dim_traccia tr ON f.track_key = tr.track_key
-            JOIN dim_artista a ON f.artist_key = a.artist_key
+            LEFT JOIN dim_genere gtr ON tr.genre_key = gtr.genre_key
             WHERE p.country_code = '${selectedCountry}'
               AND t.year = ${selectedTimeframe.year}
               AND t.week = ${selectedTimeframe.week}
               ${getGenreSqlCondition(selectedGenre)}
             GROUP BY tr.name
+        ),
+        an AS (
+            SELECT ba.artist_group_key, string_agg(a.name, ', ' ORDER BY a.name) AS artist_names
+            FROM bridge_artista ba
+            JOIN dim_artista a ON ba.artist_key = a.artist_key
+            GROUP BY ba.artist_group_key
         )
-        SELECT 
-            ROW_NUMBER() OVER (ORDER BY weekly_score DESC, popularity DESC) AS daily_rank,
-            track_name,
-            artist_names,
-            popularity,
-            days_on_chart,
-            peak_rank,
-            danceability,
-            energy,
-            valence
-        FROM weekly_stats
+        SELECT
+            ROW_NUMBER() OVER (ORDER BY ws.weekly_score DESC, ws.popularity DESC) AS daily_rank,
+            ws.track_name,
+            an.artist_names,
+            ws.popularity,
+            ws.days_on_chart,
+            ws.peak_rank,
+            ws.danceability,
+            ws.energy,
+            ws.valence
+        FROM weekly_stats ws
+        LEFT JOIN an ON ws.artist_group_key = an.artist_group_key
         ORDER BY daily_rank ASC
       `);
       
@@ -480,46 +508,68 @@ function App() {
       
       // Fetch Yearly Country Top Songs (Chart Points sum)
       const yearlyCountryRes = await dbConn.query(`
-        SELECT 
-            tr.name AS track_name,
-            string_agg(DISTINCT a.name, ', ') AS artist_names,
-            MIN(f.daily_rank) AS peak_rank,
-            COUNT(DISTINCT t.date_key) AS days_on_chart,
-            SUM(51 - f.daily_rank) / COUNT(DISTINCT a.artist_key) AS chart_points,
-            ROUND(AVG(f.popularity), 1) AS avg_popularity
-        FROM fact_chart_entry f
-        JOIN dim_tempo t ON f.date_key = t.date_key
-        JOIN dim_paese p ON f.country_key = p.country_key
-        JOIN dim_traccia tr ON f.track_key = tr.track_key
-        JOIN dim_artista a ON f.artist_key = a.artist_key
-        WHERE p.country_code = '${selectedCountry}'
-          AND t.year = ${selectedTimeframe.year}
-          ${getGenreSqlCondition(selectedGenre)}
-        GROUP BY tr.name
-        ORDER BY chart_points DESC
-        LIMIT 10
+        WITH tm AS (
+            SELECT
+                tr.name AS track_name,
+                ANY_VALUE(f.artist_group_key) AS artist_group_key,
+                MIN(f.daily_rank) AS peak_rank,
+                COUNT(DISTINCT t.date_key) AS days_on_chart,
+                SUM(f.performance_score) AS chart_points,
+                ROUND(AVG(f.popularity), 1) AS avg_popularity
+            FROM fact_chart_entry f
+            JOIN dim_tempo t ON f.date_key = t.date_key
+            JOIN dim_paese p ON f.country_key = p.country_key
+            JOIN dim_traccia tr ON f.track_key = tr.track_key
+            LEFT JOIN dim_genere gtr ON tr.genre_key = gtr.genre_key
+            WHERE p.country_code = '${selectedCountry}'
+              AND t.year = ${selectedTimeframe.year}
+              ${getGenreSqlCondition(selectedGenre)}
+            GROUP BY tr.name
+            ORDER BY chart_points DESC
+            LIMIT 10
+        ),
+        an AS (
+            SELECT ba.artist_group_key, string_agg(a.name, ', ' ORDER BY a.name) AS artist_names
+            FROM bridge_artista ba JOIN dim_artista a ON ba.artist_key = a.artist_key
+            GROUP BY ba.artist_group_key
+        )
+        SELECT tm.track_name, an.artist_names, tm.peak_rank, tm.days_on_chart,
+               tm.chart_points, tm.avg_popularity
+        FROM tm LEFT JOIN an ON tm.artist_group_key = an.artist_group_key
+        ORDER BY tm.chart_points DESC
       `);
       setYearlyCountrySongs(yearlyCountryRes.toArray().map(cleanRow));
 
       // Fetch Yearly Global Top Songs (Chart Points sum)
       const yearlyGlobalRes = await dbConn.query(`
-        SELECT 
-            tr.name AS track_name,
-            string_agg(DISTINCT a.name, ', ') AS artist_names,
-            MIN(f.daily_rank) AS peak_rank,
-            COUNT(DISTINCT p.country_code) AS countries_charted,
-            SUM(51 - f.daily_rank) / COUNT(DISTINCT a.artist_key) AS chart_points,
-            ROUND(AVG(f.popularity), 1) AS avg_popularity
-        FROM fact_chart_entry f
-        JOIN dim_tempo t ON f.date_key = t.date_key
-        JOIN dim_paese p ON f.country_key = p.country_key
-        JOIN dim_traccia tr ON f.track_key = tr.track_key
-        JOIN dim_artista a ON f.artist_key = a.artist_key
-        WHERE t.year = ${selectedTimeframe.year}
-          ${getGenreSqlCondition(selectedGenre)}
-        GROUP BY tr.name
-        ORDER BY chart_points DESC
-        LIMIT 10
+        WITH tm AS (
+            SELECT
+                tr.name AS track_name,
+                ANY_VALUE(f.artist_group_key) AS artist_group_key,
+                MIN(f.daily_rank) AS peak_rank,
+                COUNT(DISTINCT p.country_code) AS countries_charted,
+                SUM(f.performance_score) AS chart_points,
+                ROUND(AVG(f.popularity), 1) AS avg_popularity
+            FROM fact_chart_entry f
+            JOIN dim_tempo t ON f.date_key = t.date_key
+            JOIN dim_paese p ON f.country_key = p.country_key
+            JOIN dim_traccia tr ON f.track_key = tr.track_key
+            LEFT JOIN dim_genere gtr ON tr.genre_key = gtr.genre_key
+            WHERE t.year = ${selectedTimeframe.year}
+              ${getGenreSqlCondition(selectedGenre)}
+            GROUP BY tr.name
+            ORDER BY chart_points DESC
+            LIMIT 10
+        ),
+        an AS (
+            SELECT ba.artist_group_key, string_agg(a.name, ', ' ORDER BY a.name) AS artist_names
+            FROM bridge_artista ba JOIN dim_artista a ON ba.artist_key = a.artist_key
+            GROUP BY ba.artist_group_key
+        )
+        SELECT tm.track_name, an.artist_names, tm.peak_rank, tm.countries_charted,
+               tm.chart_points, tm.avg_popularity
+        FROM tm LEFT JOIN an ON tm.artist_group_key = an.artist_group_key
+        ORDER BY tm.chart_points DESC
       `);
       setYearlyGlobalSongs(yearlyGlobalRes.toArray().map(cleanRow));
 
@@ -698,24 +748,34 @@ function App() {
   const runWhatIfSimulation = async () => {
     if (!dbConn) return;
     const simRes = await dbConn.query(`
-      SELECT 
-          tr.name AS track_name,
-          string_agg(DISTINCT a.name, ', ') AS artist_names,
-          ANY_VALUE(f.daily_rank) AS daily_rank,
-          ANY_VALUE(f.popularity) AS popularity,
-          ANY_VALUE((${localWeight} * (51 - f.daily_rank) + ${globalWeight} * f.popularity)) AS simulated_score
-      FROM fact_chart_entry f
-      JOIN dim_tempo t ON f.date_key = t.date_key
-      JOIN dim_paese p ON f.country_key = p.country_key
-      JOIN dim_traccia tr ON f.track_key = tr.track_key
-      JOIN dim_artista a ON f.artist_key = a.artist_key
-      WHERE p.country_code = '${selectedCountry}'
-        AND t.year = ${selectedTimeframe.year}
-        AND t.week = ${selectedTimeframe.week}
-        ${getGenreSqlCondition(selectedGenre)}
-      GROUP BY tr.name
-      ORDER BY simulated_score DESC
-      LIMIT 10
+      WITH sm AS (
+          SELECT
+              tr.name AS track_name,
+              ANY_VALUE(f.artist_group_key) AS artist_group_key,
+              MIN(f.daily_rank) AS daily_rank,
+              AVG(f.popularity) AS popularity,
+              MAX(${localWeight} * (51 - f.daily_rank) + ${globalWeight} * f.popularity) AS simulated_score
+          FROM fact_chart_entry f
+          JOIN dim_tempo t ON f.date_key = t.date_key
+          JOIN dim_paese p ON f.country_key = p.country_key
+          JOIN dim_traccia tr ON f.track_key = tr.track_key
+          LEFT JOIN dim_genere gtr ON tr.genre_key = gtr.genre_key
+          WHERE p.country_code = '${selectedCountry}'
+            AND t.year = ${selectedTimeframe.year}
+            AND t.week = ${selectedTimeframe.week}
+            ${getGenreSqlCondition(selectedGenre)}
+          GROUP BY tr.name
+          ORDER BY simulated_score DESC
+          LIMIT 10
+      ),
+      an AS (
+          SELECT ba.artist_group_key, string_agg(a.name, ', ' ORDER BY a.name) AS artist_names
+          FROM bridge_artista ba JOIN dim_artista a ON ba.artist_key = a.artist_key
+          GROUP BY ba.artist_group_key
+      )
+      SELECT sm.track_name, an.artist_names, sm.daily_rank, sm.popularity, sm.simulated_score
+      FROM sm LEFT JOIN an ON sm.artist_group_key = an.artist_group_key
+      ORDER BY sm.simulated_score DESC
     `);
     const list = simRes.toArray().map(cleanRow);
     setSimulatedSongs(list);
@@ -792,31 +852,41 @@ function App() {
     try {
       // 1. Fetch main track details, artists, and album
       const detailRes = await dbConn.query(`
-        SELECT 
-            tr.spotify_id,
-            tr.name AS track_name,
-            tr.duration_ms,
-            tr.is_explicit,
-            tr.danceability,
-            tr.energy,
-            tr.valence,
-            tr.mood_band,
-            tr.energy_band,
-            tr.valence_band,
-            string_agg(DISTINCT a.name, ', ') AS artist_names,
-            ANY_VALUE(al.name) AS album_name,
-            ANY_VALUE(al.release_date) AS release_date,
-            ANY_VALUE(al.release_year) AS release_year,
-            MIN(f.daily_rank) AS peak_rank_all_time,
-            MAX(f.days_on_chart) AS max_days_on_chart,
-            MAX(f.n_countries_charted) AS max_countries_charted
-        FROM fact_chart_entry f
-        JOIN dim_traccia tr ON f.track_key = tr.track_key
-        JOIN dim_artista a ON f.artist_key = a.artist_key
-        JOIN dim_album al ON f.album_key = al.album_key
-        WHERE tr.name = '${escapedName}'
-        GROUP BY tr.spotify_id, tr.name, tr.duration_ms, tr.is_explicit, tr.danceability, tr.energy, tr.valence, tr.mood_band, tr.energy_band, tr.valence_band
-        LIMIT 1
+        WITH ti AS (
+            SELECT
+                tr.spotify_id,
+                tr.name AS track_name,
+                tr.duration_ms,
+                tr.is_explicit,
+                tr.danceability,
+                tr.energy,
+                tr.valence,
+                tr.mood_band,
+                tr.energy_band,
+                tr.valence_band,
+                ANY_VALUE(f.artist_group_key) AS artist_group_key,
+                ANY_VALUE(al.name) AS album_name,
+                ANY_VALUE(al.release_date) AS release_date,
+                ANY_VALUE(al.release_year) AS release_year,
+                MIN(f.daily_rank) AS peak_rank_all_time,
+                MAX(f.days_on_chart) AS max_days_on_chart,
+                MAX(f.n_countries_charted) AS max_countries_charted
+            FROM fact_chart_entry f
+            JOIN dim_traccia tr ON f.track_key = tr.track_key
+            JOIN dim_album al ON f.album_key = al.album_key
+            WHERE tr.name = '${escapedName}'
+            GROUP BY tr.spotify_id, tr.name, tr.duration_ms, tr.is_explicit,
+                     tr.danceability, tr.energy, tr.valence,
+                     tr.mood_band, tr.energy_band, tr.valence_band
+            LIMIT 1
+        )
+        SELECT
+            ti.*,
+            (SELECT string_agg(a.name, ', ' ORDER BY a.name)
+             FROM bridge_artista ba
+             JOIN dim_artista a ON ba.artist_key = a.artist_key
+             WHERE ba.artist_group_key = ti.artist_group_key) AS artist_names
+        FROM ti
       `);
       
       if (detailRes.numRows > 0) {
@@ -959,19 +1029,28 @@ function App() {
       try {
         if (searchType === "song") {
           const res = await dbConn.query(`
-            SELECT 
-                tr.name AS track_name,
-                string_agg(DISTINCT a.name, ', ') AS artist_names,
-                MAX(f.popularity) AS popularity,
-                MAX(f.days_on_chart) AS days_on_chart,
-                MIN(f.daily_rank) AS peak_rank
-            FROM fact_chart_entry f
-            JOIN dim_traccia tr ON f.track_key = tr.track_key
-            JOIN dim_artista a ON f.artist_key = a.artist_key
-            WHERE LOWER(tr.name) LIKE '%${escapedQuery}%'
-            GROUP BY tr.name
-            ORDER BY days_on_chart DESC
-            LIMIT 15
+            WITH tm AS (
+                SELECT
+                    tr.name AS track_name,
+                    ANY_VALUE(f.artist_group_key) AS artist_group_key,
+                    MAX(f.popularity) AS popularity,
+                    MAX(f.days_on_chart) AS days_on_chart,
+                    MIN(f.daily_rank) AS peak_rank
+                FROM fact_chart_entry f
+                JOIN dim_traccia tr ON f.track_key = tr.track_key
+                WHERE LOWER(tr.name) LIKE '%${escapedQuery}%'
+                GROUP BY tr.name
+                ORDER BY days_on_chart DESC
+                LIMIT 15
+            ),
+            an AS (
+                SELECT ba.artist_group_key, string_agg(a.name, ', ' ORDER BY a.name) AS artist_names
+                FROM bridge_artista ba JOIN dim_artista a ON ba.artist_key = a.artist_key
+                GROUP BY ba.artist_group_key
+            )
+            SELECT tm.track_name, an.artist_names, tm.popularity, tm.days_on_chart, tm.peak_rank
+            FROM tm LEFT JOIN an ON tm.artist_group_key = an.artist_group_key
+            ORDER BY tm.days_on_chart DESC
           `);
           setSongSearchResults(res.toArray().map(cleanRow));
         } else {
@@ -1003,23 +1082,33 @@ function App() {
     const escapedArtist = artistName.replace(/'/g, "''").toLowerCase();
     try {
       const res = await dbConn.query(`
-        SELECT 
-            tr.name AS track_name,
-            string_agg(DISTINCT a_all.name, ', ') AS artist_names,
-            MIN(f.daily_rank) AS peak_rank,
-            COUNT(DISTINCT f.date_key) AS days_on_chart,
-            MAX(f.popularity) AS popularity
-        FROM fact_chart_entry f
-        JOIN dim_traccia tr ON f.track_key = tr.track_key
-        JOIN dim_artista a_all ON f.artist_key = a_all.artist_key
-        WHERE f.track_key IN (
-            SELECT DISTINCT f2.track_key
-            FROM fact_chart_entry f2
-            JOIN dim_artista a2 ON f2.artist_key = a2.artist_key
-            WHERE LOWER(a2.name) = '${escapedArtist}'
+        WITH artist_track_keys AS (
+            SELECT DISTINCT f.track_key
+            FROM fact_chart_entry f
+            JOIN bridge_artista ba ON f.artist_group_key = ba.artist_group_key
+            JOIN dim_artista a ON ba.artist_key = a.artist_key
+            WHERE LOWER(a.name) = '${escapedArtist}'
+        ),
+        tm AS (
+            SELECT
+                tr.name AS track_name,
+                ANY_VALUE(f.artist_group_key) AS artist_group_key,
+                MIN(f.daily_rank) AS peak_rank,
+                COUNT(DISTINCT f.date_key) AS days_on_chart,
+                MAX(f.popularity) AS popularity
+            FROM fact_chart_entry f
+            JOIN dim_traccia tr ON f.track_key = tr.track_key
+            WHERE f.track_key IN (SELECT track_key FROM artist_track_keys)
+            GROUP BY tr.name
+        ),
+        an AS (
+            SELECT ba.artist_group_key, string_agg(a.name, ', ' ORDER BY a.name) AS artist_names
+            FROM bridge_artista ba JOIN dim_artista a ON ba.artist_key = a.artist_key
+            GROUP BY ba.artist_group_key
         )
-        GROUP BY tr.name
-        ORDER BY days_on_chart DESC
+        SELECT tm.track_name, an.artist_names, tm.peak_rank, tm.days_on_chart, tm.popularity
+        FROM tm LEFT JOIN an ON tm.artist_group_key = an.artist_group_key
+        ORDER BY tm.days_on_chart DESC
       `);
       setArtistTracksResults(res.toArray().map(cleanRow));
     } catch (err) {
@@ -1046,35 +1135,40 @@ function App() {
 
       try {
         const resB = await dbConn.query(`
-          WITH weekly_stats_b AS (
-              SELECT 
+          WITH fb AS (
+              SELECT
                   tr.name AS track_name,
-                  string_agg(DISTINCT a.name, ', ') AS artist_names,
+                  ANY_VALUE(f.artist_group_key) AS artist_group_key,
                   AVG(f.popularity) AS popularity,
                   AVG(tr.danceability) AS danceability,
                   AVG(tr.energy) AS energy,
                   AVG(tr.valence) AS valence,
-                  SUM(51 - f.daily_rank) AS weekly_score
+                  SUM(f.performance_score) AS weekly_score
               FROM fact_chart_entry f
               JOIN dim_tempo t ON f.date_key = t.date_key
               JOIN dim_paese p ON f.country_key = p.country_key
               JOIN dim_traccia tr ON f.track_key = tr.track_key
-              JOIN dim_artista a ON f.artist_key = a.artist_key
+              LEFT JOIN dim_genere gtr ON tr.genre_key = gtr.genre_key
               WHERE p.country_code = '${targetBCode}'
                 AND t.year = ${selectedTimeframe.year}
                 AND t.week = ${selectedTimeframe.week}
                 ${getGenreSqlCondition(selectedGenre)}
               GROUP BY tr.name
+          ),
+          an AS (
+              SELECT ba.artist_group_key, string_agg(a.name, ', ' ORDER BY a.name) AS artist_names
+              FROM bridge_artista ba JOIN dim_artista a ON ba.artist_key = a.artist_key
+              GROUP BY ba.artist_group_key
           )
-          SELECT 
-              ROW_NUMBER() OVER (ORDER BY weekly_score DESC, popularity DESC) AS daily_rank,
-              track_name,
-              artist_names,
-              popularity,
-              danceability,
-              energy,
-              valence
-          FROM weekly_stats_b
+          SELECT
+              ROW_NUMBER() OVER (ORDER BY fb.weekly_score DESC, fb.popularity DESC) AS daily_rank,
+              fb.track_name,
+              an.artist_names,
+              fb.popularity,
+              fb.danceability,
+              fb.energy,
+              fb.valence
+          FROM fb LEFT JOIN an ON fb.artist_group_key = an.artist_group_key
           ORDER BY daily_rank ASC
         `);
         countryBData = resB.toArray().map(cleanRow);

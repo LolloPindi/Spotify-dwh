@@ -23,11 +23,13 @@ def export_to_parquet():
     conn = psycopg2.connect(conn_str)
     
     tables = [
+        "dim_genere",
         "dim_tempo",
         "dim_paese",
         "dim_traccia",
         "dim_artista",
         "dim_album",
+        "bridge_artista",
         "fact_chart_entry"
     ]
     

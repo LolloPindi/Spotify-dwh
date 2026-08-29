@@ -88,11 +88,13 @@ def download_tableau():
         )
         
         tables = [
+            "dim_genere",
             "dim_tempo",
             "dim_paese",
             "dim_traccia",
             "dim_artista",
             "dim_album",
+            "bridge_artista",
             "fact_chart_entry"
         ]
         

@@ -44,11 +44,13 @@ export async function initDuckDB(onProgress) {
 
 async function loadDWH(onProgress) {
     const tables = [
+        "dim_genere",
         "dim_tempo",
         "dim_paese",
         "dim_traccia",
         "dim_artista",
         "dim_album",
+        "bridge_artista",
         "fact_chart_entry"
     ];
 
@@ -82,7 +84,7 @@ async function loadDWH(onProgress) {
     if (onProgress) onProgress("Materializzazione del Cubo MOLAP (pre-aggregato)...");
     await conn.query(`
         CREATE OR REPLACE TABLE molap_track_country_weekly AS
-        SELECT 
+        SELECT
             t.year,
             t.week,
             p.country_code,
@@ -90,7 +92,6 @@ async function loadDWH(onProgress) {
             p.continent,
             tr.spotify_id,
             tr.name AS track_name,
-            a.name AS artist_name,
             AVG(f.daily_rank) AS avg_rank,
             AVG(f.popularity) AS avg_popularity,
             SUM(f.chart_presence) AS total_presence,
@@ -102,8 +103,7 @@ async function loadDWH(onProgress) {
         JOIN dim_tempo t ON f.date_key = t.date_key
         JOIN dim_paese p ON f.country_key = p.country_key
         JOIN dim_traccia tr ON f.track_key = tr.track_key
-        JOIN dim_artista a ON f.artist_key = a.artist_key
-        GROUP BY t.year, t.week, p.country_code, p.country_name, p.continent, tr.spotify_id, tr.name, a.name
+        GROUP BY t.year, t.week, p.country_code, p.country_name, p.continent, tr.spotify_id, tr.name
     `);
     
     if (onProgress) onProgress("DWH Pronto!");
