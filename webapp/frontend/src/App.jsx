@@ -119,6 +119,25 @@ function App() {
   const [genreByRegionData, setGenreByRegionData] = useState([]);
   const [overlapTrendData, setOverlapTrendData] = useState([]);
 
+  // Slide 3: SLICE & DICE
+  const [slide3Country, setSlide3Country] = useState('IT');
+  const [slide3Stats, setSlide3Stats] = useState({ overlap_pct: 0, total_tracks: 0, global_tracks: 0 });
+  const [slide3LocalHits, setSlide3LocalHits] = useState([]);
+  const [slide3Compare, setSlide3Compare] = useState('');
+  const [slide3CompareStats, setSlide3CompareStats] = useState(null);
+  const [slide3CompareHits, setSlide3CompareHits] = useState([]);
+
+  // Slide 4: DRILL-DOWN
+  const [slide4Level, setSlide4Level] = useState('continent');
+  const [slide4SelectedContinent, setSlide4SelectedContinent] = useState(null);
+  const [slide4CountryData, setSlide4CountryData] = useState([]);
+  const [slide4SelectedCountry, setSlide4SelectedCountry] = useState(null);
+  const [slide4TrackData, setSlide4TrackData] = useState([]);
+
+  // Slide 5: ROLL-UP / SLICE
+  const [slide5Country, setSlide5Country] = useState('ALL');
+  const [slide5TrendData, setSlide5TrendData] = useState([]);
+
 
   // What-If Simulation
   const [localWeight, setLocalWeight] = useState(50);
@@ -1352,6 +1371,41 @@ function App() {
     return incomeAudioData;
   };
 
+  // ── Slide 3/4/5 OLAP hooks — must be before early return ────────────────────
+  useEffect(() => {
+    if (!dbConn || loading) return;
+    loadSlide3Data(slide3Country, setSlide3Stats, setSlide3LocalHits);
+  }, [dbConn, loading, slide3Country]);
+
+  useEffect(() => {
+    if (!dbConn || loading || !slide3Compare) return;
+    loadSlide3Data(slide3Compare, setSlide3CompareStats, setSlide3CompareHits);
+  }, [dbConn, loading, slide3Compare]);
+
+  useEffect(() => {
+    if (!dbConn || loading || slide5Country === 'ALL') return;
+    (async () => {
+      try {
+        const res = await dbConn.query(`
+          WITH gl_tracks AS (
+            SELECT DISTINCT f.track_key, t.year FROM fact_chart_entry f
+            JOIN dim_tempo t ON f.date_key = t.date_key
+            JOIN dim_paese p ON f.country_key = p.country_key WHERE p.country_code = 'GL'
+          )
+          SELECT t.year,
+                 ROUND(100.0 * COUNT(DISTINCT gl.track_key) / NULLIF(COUNT(DISTINCT f.track_key), 0), 1) AS overlap_pct
+          FROM fact_chart_entry f
+          JOIN dim_tempo t ON f.date_key = t.date_key
+          JOIN dim_paese p ON f.country_key = p.country_key
+          LEFT JOIN gl_tracks gl ON f.track_key = gl.track_key AND t.year = gl.year
+          WHERE p.country_code = '${slide5Country}'
+          GROUP BY t.year ORDER BY t.year
+        `);
+        setSlide5TrendData(res.toArray().map(cleanRow));
+      } catch (e) { console.error('Slide 5 slice error:', e); }
+    })();
+  }, [dbConn, loading, slide5Country]);
+
   // Loading Screen
   if (loading) {
     return (
@@ -1371,6 +1425,113 @@ function App() {
   const formatCurrency = (num) => {
     if (!num) return "N/D";
     return "$" + Math.round(num).toLocaleString();
+  };
+
+  // ── Slide 3: SLICE & DICE ─────────────────────────────────────────────────
+  const loadSlide3Data = async (code, setStats, setHits) => {
+    if (!dbConn || !code) return;
+    try {
+      const [sRes, hRes] = await Promise.all([
+        dbConn.query(`
+          WITH gl AS (
+            SELECT DISTINCT f.track_key FROM fact_chart_entry f
+            JOIN dim_paese p ON f.country_key = p.country_key WHERE p.country_code = 'GL'
+          )
+          SELECT COUNT(DISTINCT f.track_key) AS total_tracks,
+                 COUNT(DISTINCT CASE WHEN gl.track_key IS NOT NULL THEN f.track_key END) AS global_tracks,
+                 ROUND(100.0 * COUNT(DISTINCT CASE WHEN gl.track_key IS NOT NULL THEN f.track_key END)
+                   / NULLIF(COUNT(DISTINCT f.track_key), 0), 1) AS overlap_pct
+          FROM fact_chart_entry f
+          JOIN dim_paese p ON f.country_key = p.country_key
+          LEFT JOIN gl ON f.track_key = gl.track_key
+          WHERE p.country_code = '${code}'
+        `),
+        dbConn.query(`
+          WITH gl AS (
+            SELECT DISTINCT f.track_key FROM fact_chart_entry f
+            JOIN dim_paese p ON f.country_key = p.country_key WHERE p.country_code = 'GL'
+          ),
+          lh AS (
+            SELECT tr.name AS track_name, ANY_VALUE(f.artist_group_key) AS artist_group_key,
+                   COUNT(*) AS presence
+            FROM fact_chart_entry f
+            JOIN dim_traccia tr ON f.track_key = tr.track_key
+            JOIN dim_paese p ON f.country_key = p.country_key
+            LEFT JOIN gl ON f.track_key = gl.track_key
+            WHERE p.country_code = '${code}' AND gl.track_key IS NULL
+            GROUP BY tr.name ORDER BY presence DESC LIMIT 5
+          ),
+          an AS (
+            SELECT ba.artist_group_key, string_agg(a.name, ', ' ORDER BY a.name) AS artist_names
+            FROM bridge_artista ba JOIN dim_artista a ON ba.artist_key = a.artist_key
+            GROUP BY ba.artist_group_key
+          )
+          SELECT lh.track_name, an.artist_names
+          FROM lh LEFT JOIN an ON lh.artist_group_key = an.artist_group_key
+        `)
+      ]);
+      setStats(sRes.toArray().map(cleanRow)[0] || { overlap_pct: 0, total_tracks: 0, global_tracks: 0 });
+      setHits(hRes.toArray().map(cleanRow));
+    } catch (e) { console.error('Slide 3 error:', e); }
+  };
+
+  // ── Slide 4: DRILL-DOWN ───────────────────────────────────────────────────
+  const drillToContinent = async (continent) => {
+    if (!dbConn) return;
+    setSlide4SelectedContinent(continent);
+    try {
+      const res = await dbConn.query(`
+        WITH gl AS (
+          SELECT DISTINCT f.track_key FROM fact_chart_entry f
+          JOIN dim_paese p ON f.country_key = p.country_key WHERE p.country_code = 'GL'
+        )
+        SELECT p.country_name, p.country_code,
+               ROUND(100.0 * COUNT(DISTINCT CASE WHEN gl.track_key IS NOT NULL THEN f.track_key END)
+                 / NULLIF(COUNT(DISTINCT f.track_key), 0), 1) AS overlap_pct
+        FROM fact_chart_entry f
+        JOIN dim_paese p ON f.country_key = p.country_key
+        LEFT JOIN gl ON f.track_key = gl.track_key
+        WHERE p.country_code != 'GL' AND p.continent = '${continent}'
+        GROUP BY p.country_name, p.country_code
+        ORDER BY overlap_pct ASC
+      `);
+      setSlide4CountryData(res.toArray().map(cleanRow));
+      setSlide4Level('country');
+    } catch (e) { console.error('Drill-down continent error:', e); }
+  };
+
+  const drillToCountry = async (code, name) => {
+    if (!dbConn) return;
+    setSlide4SelectedCountry({ code, name });
+    try {
+      const res = await dbConn.query(`
+        WITH gl AS (
+          SELECT DISTINCT f.track_key FROM fact_chart_entry f
+          JOIN dim_paese p ON f.country_key = p.country_key WHERE p.country_code = 'GL'
+        ),
+        lh AS (
+          SELECT tr.name AS track_name, ANY_VALUE(f.artist_group_key) AS artist_group_key,
+                 COALESCE(g.macro_genre, 'Other') AS macro_genre, COUNT(*) AS presence
+          FROM fact_chart_entry f
+          JOIN dim_traccia tr ON f.track_key = tr.track_key
+          JOIN dim_paese p ON f.country_key = p.country_key
+          LEFT JOIN dim_genere g ON tr.genre_key = g.genre_key
+          LEFT JOIN gl ON f.track_key = gl.track_key
+          WHERE p.country_code = '${code}' AND gl.track_key IS NULL
+          GROUP BY tr.name, COALESCE(g.macro_genre, 'Other')
+          ORDER BY presence DESC LIMIT 6
+        ),
+        an AS (
+          SELECT ba.artist_group_key, string_agg(a.name, ', ' ORDER BY a.name) AS artist_names
+          FROM bridge_artista ba JOIN dim_artista a ON ba.artist_key = a.artist_key
+          GROUP BY ba.artist_group_key
+        )
+        SELECT lh.track_name, lh.macro_genre, an.artist_names
+        FROM lh LEFT JOIN an ON lh.artist_group_key = an.artist_group_key
+      `);
+      setSlide4TrackData(res.toArray().map(cleanRow));
+      setSlide4Level('tracks');
+    } catch (e) { console.error('Drill-down country error:', e); }
   };
 
   const renderSlide = () => {
@@ -1515,154 +1676,333 @@ function App() {
             </div>
           </div>
         );
-      case 3:
+      case 3: {
+        const sortedCountries = [...divergenceCountries].sort((a, b) => (a.country_name || '').localeCompare(b.country_name || ''));
+        const CountryPanel = ({ stats, hits, label, color, isEmpty }) => (
+          <div className="glass-panel" style={{ padding: '18px', marginBottom: 0, flex: 1, opacity: isEmpty ? 0.4 : 1, transition: 'opacity 0.3s', display: 'flex', flexDirection: 'column' }}>
+            {isEmpty ? (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', flexDirection: 'column', gap: '8px', color: 'var(--text-secondary)' }}>
+                <Globe size={28} style={{ opacity: 0.3 }} />
+                <span style={{ fontSize: '0.8rem' }}>Seleziona un paese da confrontare</span>
+              </div>
+            ) : (
+              <>
+                <div style={{ marginBottom: '14px' }}>
+                  <div style={{ fontSize: '0.7rem', textTransform: 'uppercase', color: 'var(--text-secondary)', marginBottom: '4px' }}>{label}</div>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
+                    <span style={{ fontSize: '2.4rem', fontWeight: '800', color }}>{Math.round(parseFloat(stats?.overlap_pct || 0))}%</span>
+                    <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>overlap con Global</span>
+                  </div>
+                  <div style={{ marginTop: '8px', background: 'rgba(255,255,255,0.05)', borderRadius: '6px', height: '8px', overflow: 'hidden' }}>
+                    <div style={{ width: `${parseFloat(stats?.overlap_pct || 0)}%`, height: '100%', background: color, borderRadius: '6px', transition: 'width 0.8s ease' }} />
+                  </div>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                    {parseInt(stats?.global_tracks || 0).toLocaleString()} brani globali su {parseInt(stats?.total_tracks || 0).toLocaleString()} totali
+                  </div>
+                </div>
+                <div style={{ fontSize: '0.75rem', color, marginBottom: '8px', fontWeight: '600' }}>Top 5 brani esclusivi (non nel Global)</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  {hits.map((h, i) => (
+                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 8px', background: 'rgba(255,255,255,0.04)', borderRadius: '5px', borderLeft: `2px solid ${color}` }}>
+                      <span style={{ fontSize: '0.65rem', color, fontWeight: '700', width: '14px' }}>{i + 1}</span>
+                      <div style={{ overflow: 'hidden' }}>
+                        <div style={{ fontSize: '0.78rem', fontWeight: '600', color: '#fff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{h.track_name}</div>
+                        <div style={{ fontSize: '0.68rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{h.artist_names}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        );
         return (
           <div className="slide-content">
-            <div className="slide-eyebrow">02 · La Mappa dell'Indipendenza Culturale</div>
-            <h2 className="slide-title">Chi resiste alla globalizzazione musicale?</h2>
-            <p className="slide-subtitle">
-              Per ogni paese calcoliamo quante delle canzoni in classifica compaiono anche nella Global Top 50. Un overlap basso significa identità locale forte. La distanza tra i due estremi è abissale.
-            </p>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-              {/* Most Local */}
-              <div className="glass-panel" style={{ padding: '18px', marginBottom: 0 }}>
-                <h4 style={{ fontSize: '0.9rem', color: '#E67E22', marginBottom: '14px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <Globe size={15} /> I Più Indipendenti (overlap basso)
-                </h4>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  {mostLocal.map((c, i) => (
-                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                      <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', width: '90px', flexShrink: 0 }}>{c.country_name}</span>
-                      <div style={{ flex: 1, background: 'rgba(255,255,255,0.05)', borderRadius: '4px', height: '12px', overflow: 'hidden' }}>
-                        <div style={{ width: `${parseFloat(c.overlap_pct)}%`, height: '100%', background: '#E67E22', borderRadius: '4px', transition: 'width 1s' }} />
-                      </div>
-                      <span style={{ fontSize: '0.75rem', color: '#E67E22', width: '38px', textAlign: 'right', flexShrink: 0, fontWeight: '700' }}>{Math.round(parseFloat(c.overlap_pct))}%</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-              {/* Most Global */}
-              <div className="glass-panel" style={{ padding: '18px', marginBottom: 0 }}>
-                <h4 style={{ fontSize: '0.9rem', color: '#1DB954', marginBottom: '14px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <Globe size={15} /> I Più Globalizzati (overlap alto)
-                </h4>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  {mostGlobal.map((c, i) => (
-                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                      <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', width: '90px', flexShrink: 0 }}>{c.country_name}</span>
-                      <div style={{ flex: 1, background: 'rgba(255,255,255,0.05)', borderRadius: '4px', height: '12px', overflow: 'hidden' }}>
-                        <div style={{ width: `${parseFloat(c.overlap_pct)}%`, height: '100%', background: '#1DB954', borderRadius: '4px', transition: 'width 1s' }} />
-                      </div>
-                      <span style={{ fontSize: '0.75rem', color: '#1DB954', width: '38px', textAlign: 'right', flexShrink: 0, fontWeight: '700' }}>{Math.round(parseFloat(c.overlap_pct))}%</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '4px' }}>
+              <div className="slide-eyebrow" style={{ margin: 0 }}>02 · SLICE &amp; DICE — ESPLORA UN PAESE</div>
+              <span style={{ background: 'rgba(52,152,219,0.2)', color: '#3498DB', fontSize: '0.65rem', fontWeight: '700', padding: '2px 8px', borderRadius: '4px', letterSpacing: '1px' }}>OLAP: SLICE</span>
+              <span style={{ background: 'rgba(155,89,182,0.2)', color: '#9B59B6', fontSize: '0.65rem', fontWeight: '700', padding: '2px 8px', borderRadius: '4px', letterSpacing: '1px' }}>DICE</span>
             </div>
-            <div className="slide-card" style={{ padding: '12px 16px', marginTop: '14px', borderLeft: '3px solid #9B59B6', display: 'flex', gap: '12px', alignItems: 'center' }}>
-              <TrendingUp size={16} style={{ color: '#9B59B6', flexShrink: 0 }} />
-              <p style={{ fontSize: '0.8rem', margin: 0, color: 'var(--text-secondary)' }}>
-                <strong style={{ color: '#fff' }}>Media globale: {avgOverlap}%.</strong> Più di metà dei brani in ogni classifica non compaiono nella Global Top 50. Le culture locali resistono.
-              </p>
+            <h2 className="slide-title" style={{ fontSize: '2rem', margin: '8px 0' }}>Scegli un paese — i dati cambiano in tempo reale</h2>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px', flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Paese principale:</span>
+                <select
+                  value={slide3Country}
+                  onChange={e => setSlide3Country(e.target.value)}
+                  style={{ background: '#181c26', border: '1px solid var(--border-light)', color: '#fff', padding: '6px 10px', borderRadius: '6px', fontSize: '0.85rem', cursor: 'pointer' }}
+                >
+                  {sortedCountries.map(c => (
+                    <option key={c.country_code} value={c.country_code}>{c.country_name}</option>
+                  ))}
+                </select>
+              </div>
+              <span style={{ color: 'var(--text-secondary)', fontSize: '0.8rem' }}>vs</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Confronta (DICE):</span>
+                <select
+                  value={slide3Compare}
+                  onChange={e => setSlide3Compare(e.target.value)}
+                  style={{ background: '#181c26', border: '1px solid var(--border-light)', color: '#fff', padding: '6px 10px', borderRadius: '6px', fontSize: '0.85rem', cursor: 'pointer' }}
+                >
+                  <option value="">— nessuno —</option>
+                  {sortedCountries.filter(c => c.country_code !== slide3Country).map(c => (
+                    <option key={c.country_code} value={c.country_code}>{c.country_name}</option>
+                  ))}
+                </select>
+              </div>
+              <span style={{ fontSize: '0.72rem', color: '#3498DB', background: 'rgba(52,152,219,0.1)', padding: '3px 8px', borderRadius: '4px' }}>
+                Media globale: {avgOverlap}%
+              </span>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: slide3Compare ? '1fr 1fr' : '1fr', gap: '16px', flex: 1 }}>
+              <CountryPanel
+                stats={slide3Stats}
+                hits={slide3LocalHits}
+                label={divergenceCountries.find(c => c.country_code === slide3Country)?.country_name || slide3Country}
+                color="#E67E22"
+                isEmpty={false}
+              />
+              {slide3Compare ? (
+                <CountryPanel
+                  stats={slide3CompareStats}
+                  hits={slide3CompareHits}
+                  label={divergenceCountries.find(c => c.country_code === slide3Compare)?.country_name || slide3Compare}
+                  color="#1DB954"
+                  isEmpty={false}
+                />
+              ) : (
+                <CountryPanel isEmpty stats={null} hits={[]} label="" color="" />
+              )}
             </div>
           </div>
         );
-      case 4:
+      }
+      case 4: {
+        const CONTINENTS = ['Africa', 'Asia', 'Europe', 'North America', 'Oceania', 'South America'];
+        const CONTINENT_COLORS = {
+          'Africa': '#E67E22', 'Asia': '#E74C3C', 'Europe': '#3498DB',
+          'North America': '#1DB954', 'Oceania': '#9B59B6', 'South America': '#F39C12'
+        };
+        const BreadCrumb = () => (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', marginBottom: '12px' }}>
+            <span
+              onClick={() => { setSlide4Level('continent'); setSlide4SelectedContinent(null); setSlide4CountryData([]); setSlide4SelectedCountry(null); setSlide4TrackData([]); }}
+              style={{ color: '#3498DB', cursor: 'pointer', textDecoration: 'underline' }}
+            >Continenti</span>
+            {slide4SelectedContinent && (
+              <>
+                <span style={{ color: 'var(--text-secondary)' }}>/</span>
+                <span
+                  onClick={() => { if (slide4Level === 'tracks') { setSlide4Level('country'); setSlide4SelectedCountry(null); setSlide4TrackData([]); } }}
+                  style={{ color: slide4Level === 'tracks' ? '#3498DB' : '#fff', cursor: slide4Level === 'tracks' ? 'pointer' : 'default', textDecoration: slide4Level === 'tracks' ? 'underline' : 'none' }}
+                >{slide4SelectedContinent}</span>
+              </>
+            )}
+            {slide4SelectedCountry && (
+              <>
+                <span style={{ color: 'var(--text-secondary)' }}>/</span>
+                <span style={{ color: '#fff' }}>{slide4SelectedCountry.name}</span>
+              </>
+            )}
+          </div>
+        );
         return (
           <div className="slide-content">
-            <div className="slide-eyebrow">03 · Il DNA Musicale dei Continenti</div>
-            <h2 className="slide-title">Ogni continente ha il suo suono</h2>
-            <p className="slide-subtitle">
-              Il motivo della divergenza è nei generi: i paesi più "locali" ascoltano generi diversissimi dal mainstream globale. La distribuzione per continente lo dimostra chiaramente.
-            </p>
-            <div className="glass-panel" style={{ padding: '20px', marginBottom: 0 }}>
-              <h4 style={{ fontSize: '0.9rem', color: '#1DB954', marginBottom: '14px' }}>
-                Distribuzione % dei Macro-Generi per Continente (calcolata live su 2,1M righe)
-              </h4>
-              <div style={{ width: '100%', height: '250px' }}>
-                {genreChartData.length > 0 ? (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={genreChartData} layout="vertical" margin={{ top: 0, right: 20, left: 60, bottom: 0 }}>
-                      <XAxis type="number" domain={[0, 100]} tick={{ fill: '#9ea2b5', fontSize: 10 }} tickFormatter={v => `${Math.round(v)}%`} />
-                      <YAxis type="category" dataKey="continent" tick={{ fill: '#e0e0e0', fontSize: 10 }} width={60} />
-                      <Tooltip
-                        contentStyle={{ background: '#181c26', border: '1px solid var(--border-light)', borderRadius: '4px', fontSize: '0.8rem' }}
-                        formatter={(value, name) => [`${value}%`, name]}
-                      />
-                      <Legend wrapperStyle={{ fontSize: '0.75rem', paddingTop: '8px' }} />
-                      {topGenresGlobal.map(genre => (
-                        <Bar key={genre} dataKey={genre} stackId="g" fill={GENRE_COLORS[genre] || '#7F8C8D'} />
-                      ))}
-                    </BarChart>
-                  </ResponsiveContainer>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '4px' }}>
+              <div className="slide-eyebrow" style={{ margin: 0 }}>03 · DRILL-DOWN — CONTINENTE → PAESE → BRANI</div>
+              <span style={{ background: 'rgba(231,76,60,0.2)', color: '#E74C3C', fontSize: '0.65rem', fontWeight: '700', padding: '2px 8px', borderRadius: '4px', letterSpacing: '1px' }}>OLAP: DRILL-DOWN</span>
+            </div>
+            <h2 className="slide-title" style={{ fontSize: '2rem', margin: '8px 0' }}>Clicca per scendere nella gerarchia</h2>
+            <BreadCrumb />
+
+            {slide4Level === 'continent' && (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', flex: 1 }}>
+                {CONTINENTS.map(cont => {
+                  const color = CONTINENT_COLORS[cont] || '#7F8C8D';
+                  const countriesInCont = divergenceCountries.filter(c => c.continent === cont);
+                  const avgOv = countriesInCont.length > 0
+                    ? Math.round(countriesInCont.reduce((s, c) => s + parseFloat(c.overlap_pct || 0), 0) / countriesInCont.length)
+                    : null;
+                  return (
+                    <button
+                      key={cont}
+                      onClick={() => drillToContinent(cont)}
+                      style={{ background: 'rgba(255,255,255,0.04)', border: `2px solid ${color}30`, borderRadius: '10px', padding: '18px 14px', cursor: 'pointer', textAlign: 'left', transition: 'all 0.2s', color: '#fff' }}
+                      onMouseOver={e => { e.currentTarget.style.borderColor = color; e.currentTarget.style.background = `${color}15`; }}
+                      onMouseOut={e => { e.currentTarget.style.borderColor = `${color}30`; e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; }}
+                    >
+                      <div style={{ fontSize: '0.75rem', color, fontWeight: '700', marginBottom: '6px', textTransform: 'uppercase' }}>{cont}</div>
+                      {avgOv !== null && (
+                        <>
+                          <div style={{ fontSize: '2rem', fontWeight: '800', color }}>{avgOv}%</div>
+                          <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginTop: '4px' }}>overlap medio · {countriesInCont.length} paesi</div>
+                        </>
+                      )}
+                      <div style={{ fontSize: '0.72rem', color, marginTop: '10px' }}>Clicca per vedere i paesi →</div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            {slide4Level === 'country' && (
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>
+                  Overlap % in <strong style={{ color: '#fff' }}>{slide4SelectedContinent}</strong> — dal più locale al più globalizzato. Clicca un paese per vedere i brani esclusivi.
+                </div>
+                {slide4CountryData.length === 0 ? (
+                  <div style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>Caricamento…</div>
                 ) : (
-                  <div style={{ display: 'flex', height: '100%', alignItems: 'center', justifyContent: 'center', color: 'var(--text-secondary)' }}>Caricamento…</div>
+                  <div style={{ overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    {slide4CountryData.map((c, i) => {
+                      const ov = parseFloat(c.overlap_pct || 0);
+                      const color = CONTINENT_COLORS[slide4SelectedContinent] || '#3498DB';
+                      return (
+                        <button
+                          key={c.country_code}
+                          onClick={() => drillToCountry(c.country_code, c.country_name)}
+                          style={{ display: 'flex', alignItems: 'center', gap: '10px', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-light)', borderRadius: '6px', padding: '8px 12px', cursor: 'pointer', color: '#fff', textAlign: 'left', transition: 'background 0.15s' }}
+                          onMouseOver={e => { e.currentTarget.style.background = `${color}15`; }}
+                          onMouseOut={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.03)'; }}
+                        >
+                          <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', width: '18px', flexShrink: 0 }}>{i + 1}</span>
+                          <span style={{ fontSize: '0.82rem', fontWeight: '600', width: '130px', flexShrink: 0 }}>{c.country_name}</span>
+                          <div style={{ flex: 1, background: 'rgba(255,255,255,0.05)', borderRadius: '4px', height: '10px', overflow: 'hidden' }}>
+                            <div style={{ width: `${ov}%`, height: '100%', background: color, borderRadius: '4px', transition: 'width 0.6s' }} />
+                          </div>
+                          <span style={{ fontSize: '0.8rem', color, fontWeight: '700', width: '40px', textAlign: 'right', flexShrink: 0 }}>{Math.round(ov)}%</span>
+                          <span style={{ fontSize: '0.65rem', color: 'var(--text-secondary)' }}>→</span>
+                        </button>
+                      );
+                    })}
+                  </div>
                 )}
               </div>
-            </div>
-            <div className="slide-card" style={{ padding: '10px 16px', marginTop: '12px', borderLeft: '3px solid #E67E22' }}>
-              <p style={{ fontSize: '0.8rem', margin: 0, color: 'var(--text-secondary)' }}>
-                <strong style={{ color: '#E67E22' }}>Insight chiave:</strong> Latin/World domina in America Latina, Hip-Hop/Rap in Africa, generi diversi in Asia. La coesistenza di macro-generi locali spiega perché l'overlap con la Global è strutturalmente bassa.
-              </p>
-            </div>
+            )}
+
+            {slide4Level === 'tracks' && (
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                  Brani esclusivi (non nel Global) di <strong style={{ color: '#fff' }}>{slide4SelectedCountry?.name}</strong>
+                </div>
+                {slide4TrackData.length === 0 ? (
+                  <div style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>Caricamento…</div>
+                ) : (
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', flex: 1 }}>
+                    {slide4TrackData.map((t, i) => (
+                      <div key={i} style={{ display: 'flex', gap: '12px', alignItems: 'flex-start', padding: '12px', background: 'rgba(255,255,255,0.04)', borderRadius: '8px', borderLeft: '3px solid #E74C3C' }}>
+                        <span style={{ fontSize: '1.4rem', fontWeight: '800', color: 'rgba(231,76,60,0.4)', flexShrink: 0 }}>{i + 1}</span>
+                        <div style={{ overflow: 'hidden' }}>
+                          <div style={{ fontSize: '0.85rem', fontWeight: '700', color: '#fff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.track_name}</div>
+                          <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.artist_names}</div>
+                          {t.macro_genre && <span style={{ fontSize: '0.65rem', color: '#E74C3C', background: 'rgba(231,76,60,0.1)', padding: '1px 6px', borderRadius: '3px', display: 'inline-block', marginTop: '4px' }}>{t.macro_genre}</span>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         );
-      case 5:
+      }
+      case 5: {
+        const trendDisplayData = slide5Country === 'ALL' ? overlapTrendData : slide5TrendData;
+        const sortedForSlide5 = [...divergenceCountries].sort((a, b) => (a.country_name || '').localeCompare(b.country_name || ''));
+        const isRollUp = slide5Country === 'ALL';
+        const activeTrendData = trendDisplayData.map(r => ({ year: parseInt(r.year), overlap_pct: parseFloat(r.overlap_pct) }));
+        const s5First = activeTrendData[0];
+        const s5Last = activeTrendData[activeTrendData.length - 1];
+        const s5Delta = s5First && s5Last ? (s5Last.overlap_pct - s5First.overlap_pct).toFixed(1) : null;
         return (
           <div className="slide-content">
-            <div className="slide-eyebrow">04 · L'Evoluzione Temporale (2017–2024)</div>
-            <h2 className="slide-title">Sta aumentando o diminuendo la divergenza?</h2>
-            <p className="slide-subtitle">
-              Tracciamo l'overlap medio anno per anno: se la curva sale, la globalizzazione sta vincendo. Se scende o rimane stabile, le culture locali resistono. Il DWH risponde in tempo reale.
-            </p>
-            <div className="slide-live-panel" style={{ gridTemplateColumns: '1.3fr 1fr', gap: '20px', display: 'grid' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '4px' }}>
+              <div className="slide-eyebrow" style={{ margin: 0 }}>04 · ROLL-UP / SLICE — TENDENZA NEL TEMPO</div>
+              <span style={{ background: isRollUp ? 'rgba(52,152,219,0.2)' : 'rgba(155,89,182,0.2)', color: isRollUp ? '#3498DB' : '#9B59B6', fontSize: '0.65rem', fontWeight: '700', padding: '2px 8px', borderRadius: '4px', letterSpacing: '1px' }}>
+                OLAP: {isRollUp ? 'ROLL-UP' : 'SLICE'}
+              </span>
+            </div>
+            <h2 className="slide-title" style={{ fontSize: '2rem', margin: '8px 0' }}>
+              {isRollUp ? 'Aggregato globale — tutti i paesi' : `Trend specifico: ${divergenceCountries.find(c => c.country_code === slide5Country)?.country_name || slide5Country}`}
+            </h2>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+              <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Paese:</span>
+              <select
+                value={slide5Country}
+                onChange={e => setSlide5Country(e.target.value)}
+                style={{ background: '#181c26', border: '1px solid var(--border-light)', color: '#fff', padding: '6px 10px', borderRadius: '6px', fontSize: '0.85rem', cursor: 'pointer' }}
+              >
+                <option value="ALL">ALL — Tutti i paesi (ROLL-UP)</option>
+                {sortedForSlide5.map(c => (
+                  <option key={c.country_code} value={c.country_code}>{c.country_name} (SLICE)</option>
+                ))}
+              </select>
+              <div style={{ fontSize: '0.72rem', padding: '3px 10px', borderRadius: '4px', background: isRollUp ? 'rgba(52,152,219,0.1)' : 'rgba(155,89,182,0.1)', color: isRollUp ? '#3498DB' : '#9B59B6', fontWeight: '600' }}>
+                {isRollUp ? 'ROLL-UP: aggregazione su tutti i paesi' : 'SLICE: filtro per paese specifico'}
+              </div>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: '20px', flex: 1 }}>
               <div className="glass-panel" style={{ padding: '20px', marginBottom: 0 }}>
-                <h4 style={{ fontSize: '0.95rem', color: '#1DB954', marginBottom: '12px' }}>
-                  Overlap Medio % tra Classifiche Nazionali e Global Top 50 — per Anno
+                <h4 style={{ fontSize: '0.9rem', color: '#1DB954', marginBottom: '12px' }}>
+                  Overlap Medio % — Anno per Anno {!isRollUp && `(${divergenceCountries.find(c => c.country_code === slide5Country)?.country_name})`}
                 </h4>
-                <div style={{ width: '100%', height: '230px' }}>
-                  {overlapTrendData.length > 0 ? (
+                <div style={{ width: '100%', height: '220px' }}>
+                  {activeTrendData.length > 0 ? (
                     <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={overlapTrendData.map(r => ({ year: parseInt(r.year), overlap_pct: parseFloat(r.overlap_pct) }))} margin={{ top: 10, right: 20, left: -15, bottom: 5 }}>
+                      <LineChart data={activeTrendData} margin={{ top: 10, right: 20, left: -15, bottom: 5 }}>
                         <XAxis dataKey="year" tick={{ fill: '#9ea2b5', fontSize: 10 }} />
                         <YAxis domain={['auto', 'auto']} tick={{ fill: '#9ea2b5', fontSize: 10 }} tickFormatter={v => `${v}%`} />
                         <Tooltip
                           contentStyle={{ background: '#181c26', border: '1px solid var(--border-light)', borderRadius: '4px' }}
                           formatter={(value) => [`${value}%`, 'Overlap medio']}
                         />
-                        <ReferenceLine y={avgOverlap} stroke="rgba(155,89,182,0.6)" strokeDasharray="4 4" label={{ value: `media ${avgOverlap}%`, fill: '#9B59B6', fontSize: 10 }} />
-                        <Line type="monotone" dataKey="overlap_pct" stroke="#1DB954" strokeWidth={3} dot={{ fill: '#1DB954', r: 5 }} activeDot={{ r: 7 }} />
+                        <ReferenceLine y={avgOverlap} stroke="rgba(155,89,182,0.5)" strokeDasharray="4 4" label={{ value: `media globale ${avgOverlap}%`, fill: '#9B59B6', fontSize: 9 }} />
+                        <Line type="monotone" dataKey="overlap_pct" stroke={isRollUp ? '#1DB954' : '#9B59B6'} strokeWidth={3} dot={{ fill: isRollUp ? '#1DB954' : '#9B59B6', r: 5 }} activeDot={{ r: 7 }} />
                       </LineChart>
                     </ResponsiveContainer>
                   ) : (
-                    <div style={{ display: 'flex', height: '100%', alignItems: 'center', justifyContent: 'center', color: 'var(--text-secondary)' }}>Caricamento…</div>
+                    <div style={{ display: 'flex', height: '100%', alignItems: 'center', justifyContent: 'center', color: 'var(--text-secondary)' }}>
+                      {slide5Country !== 'ALL' && slide5TrendData.length === 0 ? 'Caricamento…' : 'Dati non disponibili'}
+                    </div>
                   )}
                 </div>
               </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', justifyContent: 'center' }}>
-                {trendDelta !== null && (
-                  <div className="glass-card" style={{ padding: '20px', textAlign: 'center', borderTop: `4px solid ${parseFloat(trendDelta) >= 0 ? '#1DB954' : '#E67E22'}` }}>
-                    <div style={{ fontSize: '2.4rem', fontWeight: '800', color: parseFloat(trendDelta) >= 0 ? '#1DB954' : '#E67E22' }}>
-                      {parseFloat(trendDelta) >= 0 ? '+' : ''}{trendDelta}pp
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', justifyContent: 'center' }}>
+                {s5Delta !== null && (
+                  <div className="glass-card" style={{ padding: '20px', textAlign: 'center', borderTop: `4px solid ${parseFloat(s5Delta) >= 0 ? '#1DB954' : '#E67E22'}` }}>
+                    <div style={{ fontSize: '2.2rem', fontWeight: '800', color: parseFloat(s5Delta) >= 0 ? '#1DB954' : '#E67E22' }}>
+                      {parseFloat(s5Delta) >= 0 ? '+' : ''}{s5Delta}pp
                     </div>
-                    <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '6px' }}>
-                      variazione {trendFirst?.year}→{trendLast?.year}
+                    <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: '6px' }}>
+                      {s5First?.year}→{s5Last?.year}
                     </div>
-                    <div style={{ fontSize: '0.85rem', color: '#fff', marginTop: '8px', fontWeight: '600' }}>
-                      {parseFloat(trendDelta) >= 2 ? 'La globalizzazione avanza' : parseFloat(trendDelta) <= -2 ? 'Le culture locali resistono' : 'Tendenza stabile'}
+                    <div style={{ fontSize: '0.82rem', color: '#fff', marginTop: '8px', fontWeight: '600' }}>
+                      {parseFloat(s5Delta) >= 2 ? 'Convergenza' : parseFloat(s5Delta) <= -2 ? 'Divergenza' : 'Tendenza stabile'}
                     </div>
                   </div>
                 )}
-                <div className="slide-card" style={{ padding: '14px', borderLeft: '3px solid #3498DB' }}>
-                  <h4 style={{ color: '#3498DB', fontSize: '0.9rem', marginBottom: '4px' }}>Query OLAP Live</h4>
-                  <p style={{ fontSize: '0.78rem', margin: 0, color: 'var(--text-secondary)' }}>
-                    Aggregazione annuale su 2,1M righe con partition pruning su <code>date_key</code> (partizionamento fisico 2017–2024). DuckDB-WASM risponde in &lt;200ms.
+                <div className="slide-card" style={{ padding: '14px', borderLeft: `3px solid ${isRollUp ? '#3498DB' : '#9B59B6'}` }}>
+                  <h4 style={{ color: isRollUp ? '#3498DB' : '#9B59B6', fontSize: '0.85rem', marginBottom: '6px' }}>
+                    {isRollUp ? 'ROLL-UP applicato' : 'SLICE applicato'}
+                  </h4>
+                  <p style={{ fontSize: '0.75rem', margin: 0, color: 'var(--text-secondary)' }}>
+                    {isRollUp
+                      ? 'Aggregazione su tutti i paesi → media globale anno per anno. La granularità sale: da paese a mondo.'
+                      : `Filtro su ${divergenceCountries.find(c => c.country_code === slide5Country)?.country_name}. Stessa query, WHERE country_code = '${slide5Country}'.`
+                    }
+                  </p>
+                </div>
+                <div className="slide-card" style={{ padding: '12px 14px', borderLeft: '3px solid rgba(255,255,255,0.15)' }}>
+                  <p style={{ fontSize: '0.7rem', margin: 0, color: 'var(--text-secondary)' }}>
+                    Query eseguita live su DuckDB-WASM · 2,1M righe · partition pruning su <code style={{ color: '#1DB954' }}>date_key</code>
                   </p>
                 </div>
               </div>
             </div>
           </div>
         );
+      }
       case 6:
         return (
           <div className="slide-content">
