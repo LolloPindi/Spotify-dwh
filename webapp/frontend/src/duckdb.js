@@ -19,16 +19,12 @@ export async function initDuckDB(onProgress) {
         // 2. Select the best bundle for the browser (e.g. eh if exceptions are supported)
         const bundle = await duckdb.selectBundle(JSDELIVR_BUNDLES);
 
-        // 3. Create a Worker from the bundle URL
-        const worker_url = URL.createObjectURL(
-            new Blob([`importScripts("${bundle.mainWorker}");`], { type: 'text/javascript' })
-        );
-        const worker = new Worker(worker_url);
+        // 3. Create a Worker using the native helper (safe on HTTPS / Vercel)
         const logger = new duckdb.ConsoleLogger();
-        
+        const worker = await duckdb.createWorker(bundle.mainWorker);
+
         db = new duckdb.AsyncDuckDB(logger, worker);
         await db.instantiate(bundle.mainModule, bundle.pthreadWorker);
-        URL.revokeObjectURL(worker_url);
 
         conn = await db.connect();
         
