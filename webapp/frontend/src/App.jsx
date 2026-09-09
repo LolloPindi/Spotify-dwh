@@ -858,10 +858,29 @@ function App() {
     const rTime = t1 - t0;
     setRolapTime(rTime);
 
-    // MOLAP Query (Pre-aggregated table)
+    // MOLAP Query (materializza il cubo on-demand al primo click)
+    await dbConn.query(`
+      CREATE OR REPLACE TABLE molap_track_country_weekly AS
+      SELECT
+          t.year, t.week,
+          p.country_code, p.country_name, p.continent,
+          tr.spotify_id, tr.name AS track_name,
+          AVG(f.daily_rank) AS avg_rank,
+          AVG(f.popularity) AS avg_popularity,
+          SUM(f.chart_presence) AS total_presence,
+          MIN(f.peak_rank) AS min_peak_rank,
+          AVG(tr.danceability) AS avg_danceability,
+          AVG(tr.energy) AS avg_energy,
+          AVG(tr.valence) AS avg_valence
+      FROM fact_chart_entry f
+      JOIN dim_tempo t ON f.date_key = t.date_key
+      JOIN dim_paese p ON f.country_key = p.country_key
+      JOIN dim_traccia tr ON f.track_key = tr.track_key
+      GROUP BY t.year, t.week, p.country_code, p.country_name, p.continent, tr.spotify_id, tr.name
+    `);
     const t2 = performance.now();
     await dbConn.query(`
-      SELECT 
+      SELECT
           country_name,
           avg_rank,
           avg_valence
