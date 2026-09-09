@@ -1,5 +1,5 @@
 -- ============================================================
--- SPOTIFY GLOBAL CHARTS - Reconciled Database
+-- SPOTIFY GLOBAL CHARTS — Reconciled Database
 -- Schema PostgreSQL
 -- ============================================================
 -- Grain di CHART_ENTRY: una riga = un brano in classifica
@@ -7,7 +7,7 @@
 -- Tripla univoca: (spotify_id, country_code, snapshot_date)
 -- ============================================================
 
--- Pulizia (utile per riesecuzioni idempotenti)
+-- Pulizia 
 DROP TABLE IF EXISTS chart_entry   CASCADE;
 DROP TABLE IF EXISTS track_artist  CASCADE;
 DROP TABLE IF EXISTS track         CASCADE;
@@ -40,7 +40,7 @@ COMMENT ON TABLE snapshot_date IS
 -- Contiene sia i codici ISO dal dataset Spotify sia i metadati
 -- geografici aggiunti da fonti esterne (World Bank / ISO 3166).
 -- Colonne income_group, gdp_per_capita, population derivano
--- dall''arricchimento - non presenti nel CSV originale.
+-- dall''arricchimento — non presenti nel CSV originale.
 -- ------------------------------------------------------------
 CREATE TABLE country (
     country_code        CHAR(2)         PRIMARY KEY,  -- ISO 3166-1 alpha-2
@@ -129,7 +129,7 @@ CREATE TABLE track_artist (
 
 -- ------------------------------------------------------------
 -- CHART_ENTRY (fatto del reconciled DB)
--- Grain: (spotify_id, country_code, snapshot_date) - unico.
+-- Grain: (spotify_id, country_code, snapshot_date) — unico.
 -- daily_rank: non additivo (si usa MIN per peak, AVG per trend).
 -- popularity: semi-additivo (medio su tempo, non su paese).
 -- ------------------------------------------------------------
@@ -144,16 +144,6 @@ CREATE TABLE chart_entry (
     popularity      SMALLINT        CHECK (popularity BETWEEN 0 AND 100),
     UNIQUE (spotify_id, country_code, snapshot_date)   -- vincolo di grain
 );
-
-COMMENT ON TABLE chart_entry IS
-    'Fatto centrale del reconciled DB. '
-    'Ogni riga è un brano in classifica in un paese in una data. '
-    'Il vincolo UNIQUE garantisce il grain dichiarato.';
-COMMENT ON COLUMN chart_entry.daily_rank IS
-    'Posizione in classifica (1=primo). NON ADDITIVA: usare MIN (peak) o AVG (trend).';
-COMMENT ON COLUMN chart_entry.popularity IS
-    'Score Spotify 0-100, calcolato globalmente. SEMI-ADDITIVA: '
-    'ha senso in media su tempo, non in somma su paesi.';
 
 -- ------------------------------------------------------------
 -- INDICI per performance delle query ETL e OLAP

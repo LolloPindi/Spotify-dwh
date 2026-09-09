@@ -1,9 +1,9 @@
 -- ============================================================
--- SPOTIFY GLOBAL CHARTS - Data Warehouse Schema
--- Star Schema (PostgreSQL)
+-- Data Warehouse Schema
+-- Star Schema 
 -- ============================================================
 
--- Pulizia per riesecuzione idempotente (ordine dipendenze)
+-- Pulizia
 DROP TABLE IF EXISTS fact_chart_entry CASCADE;
 DROP TABLE IF EXISTS bridge_artista    CASCADE;
 DROP TABLE IF EXISTS dim_tempo        CASCADE;
@@ -14,7 +14,7 @@ DROP TABLE IF EXISTS dim_album        CASCADE;
 DROP TABLE IF EXISTS dim_genere       CASCADE;
 
 -- ------------------------------------------------------------
--- DIM_GENERE - Dimensione conformata (condivisa da traccia e artista)
+-- DIM_GENERE  Dimensione conformata (condivisa da traccia e artista)
 -- Gerarchia: genre_name -> macro_genre
 -- ------------------------------------------------------------
 CREATE TABLE dim_genere (
@@ -26,7 +26,7 @@ CREATE TABLE dim_genere (
 COMMENT ON TABLE dim_genere IS
     'Dimensione conformata del genere musicale. '
     'Condivisa da dim_traccia e dim_artista tramite genre_key. '
-    'Gerarchia: genre_name -> macro_genre (es. pop -> Pop/R&B).';
+    'Gerarchia: genre_name -> macro_genre (es. pop → Pop/R&B).';
 
 -- ------------------------------------------------------------
 -- DIM_TEMPO
@@ -109,10 +109,10 @@ CREATE TABLE dim_album (
     release_decade   VARCHAR(10)
 );
 
-COMMENT ON TABLE dim_album IS 'Dimensione album - gerarchia temporale secondaria indipendente da dim_tempo.';
+COMMENT ON TABLE dim_album IS 'Dimensione album — gerarchia temporale secondaria indipendente da dim_tempo.';
 
 -- ------------------------------------------------------------
--- BRIDGE_ARTISTA - Risoluzione N:M track-artist (Kimball pattern)
+-- BRIDGE_ARTISTA — Risoluzione N:M track-artist 
 -- Un gruppo artisti (artist_group_key) identifica il set unico di artisti
 -- associati a un brano. weight_factor = 1/n_artisti.
 -- L'integrità referenziale di artist_group_key verso fact_chart_entry
@@ -134,17 +134,17 @@ CREATE INDEX idx_bridge_group  ON bridge_artista(artist_group_key);
 CREATE INDEX idx_bridge_artist ON bridge_artista(artist_key);
 
 -- ------------------------------------------------------------
--- FACT_CHART_ENTRY - partizionata RANGE su date_key
--- Grana evento: (brano, paese, data) - 2.110.286 righe.
+-- FACT_CHART_ENTRY — partizionata RANGE su date_key
+-- Grana evento: (brano, paese, data) — 2.110.286 righe.
 -- PARTITION BY RANGE abilita Partition Pruning sulle query temporali:
 -- una query su un singolo anno scannerizza solo la partizione di quell'anno.
 -- ------------------------------------------------------------
 CREATE TABLE fact_chart_entry (
     fact_key             BIGINT   GENERATED ALWAYS AS IDENTITY,
-    date_key             INTEGER  NOT NULL,  -- YYYYMMDD; logical FK -> dim_tempo
+    date_key             INTEGER  NOT NULL,  -- YYYYMMDD; logical FK → dim_tempo
     country_key          INTEGER  NOT NULL REFERENCES dim_paese(country_key),
     track_key            INTEGER  NOT NULL REFERENCES dim_traccia(track_key),
-    artist_group_key     INTEGER  NOT NULL,  -- FK logica -> bridge_artista
+    artist_group_key     INTEGER  NOT NULL,  -- FK logica → bridge_artista
     album_key            INTEGER  NOT NULL REFERENCES dim_album(album_key),
 
     -- Misure fisiche
@@ -167,14 +167,26 @@ CREATE TABLE fact_chart_entry (
 
 COMMENT ON TABLE fact_chart_entry IS
     'Fact table partizionata per range annuale su date_key. '
-    'Grana evento (brano × paese × data): 2,1M righe. '
+    'Grana evento (brano x paese x data): 2,1M righe. '
     'Analisi per artista: JOIN via bridge_artista usando artist_group_key.';
 
 -- ------------------------------------------------------------
--- PARTIZIONI ANNUALI - una per anno del dataset (ott 2023 - giu 2025)
+-- PARTIZIONI ANNUALI — una per anno del dataset
 -- Il Partition Pruning di PostgreSQL seleziona automaticamente
 -- le partizioni rilevanti in base al predicato su date_key.
 -- ------------------------------------------------------------
+CREATE TABLE fact_y2017 PARTITION OF fact_chart_entry
+    FOR VALUES FROM (20170101) TO (20180101);
+CREATE TABLE fact_y2018 PARTITION OF fact_chart_entry
+    FOR VALUES FROM (20180101) TO (20190101);
+CREATE TABLE fact_y2019 PARTITION OF fact_chart_entry
+    FOR VALUES FROM (20190101) TO (20200101);
+CREATE TABLE fact_y2020 PARTITION OF fact_chart_entry
+    FOR VALUES FROM (20200101) TO (20210101);
+CREATE TABLE fact_y2021 PARTITION OF fact_chart_entry
+    FOR VALUES FROM (20210101) TO (20220101);
+CREATE TABLE fact_y2022 PARTITION OF fact_chart_entry
+    FOR VALUES FROM (20220101) TO (20230101);
 CREATE TABLE fact_y2023 PARTITION OF fact_chart_entry
     FOR VALUES FROM (20230101) TO (20240101);
 CREATE TABLE fact_y2024 PARTITION OF fact_chart_entry
@@ -184,7 +196,7 @@ CREATE TABLE fact_default PARTITION OF fact_chart_entry DEFAULT;
 -- ------------------------------------------------------------
 -- INDICI per ottimizzazione OLAP
 -- Gli indici dichiarati sul parent vengono propagati automaticamente
--- a tutte le partizioni (PostgreSQL 11+).
+-- a tutte le partizioni 
 -- ------------------------------------------------------------
 CREATE INDEX idx_fact_date         ON fact_chart_entry(date_key);
 CREATE INDEX idx_fact_country      ON fact_chart_entry(country_key);
