@@ -19,13 +19,13 @@ DB_HOST = os.getenv("DB_RECONCILED_HOST", "localhost")
 DB_PORT = os.getenv("DB_RECONCILED_PORT", "5432")
 DB_NAME = os.getenv("DB_RECONCILED_NAME", "spotify_reconciled")
 DB_USER = os.getenv("DB_RECONCILED_USER", "postgres")
-DB_PASS = os.getenv("DB_RECONCILED_PASSWORD", "Lollo")
+DB_PASS = os.getenv("DB_RECONCILED_PASSWORD", "")
 
 def sep(title="", width=70):
-    print(f"\n{'─'*width}")
+    print(f"\n{'-'*width}")
     if title:
         print(f"  {title}")
-        print(f"{'─'*width}")
+        print(f"{'-'*width}")
 
 def get_conn():
     return psycopg2.connect(
@@ -91,6 +91,18 @@ def main():
         print(res_pq.stderr)
         return
         
+    sep("4. ESPORTAZIONE TABELLE DWH IN FORMATO CSV (Tableau)")
+    res_csv = subprocess.run([".venv/bin/python", "webapp/backend/export_csv.py"], capture_output=True, text=True)
+    if res_csv.returncode == 0:
+        print("    Esportazione CSV completata con successo.")
+        for line in res_csv.stdout.split("\n"):
+            if "righe" in line or "completata" in line:
+                print(f"     {line.strip()}")
+    else:
+        print("   Errore nell'esportazione CSV:")
+        print(res_csv.stderr)
+        return
+
     sep("ALLINEAMENTO COMPLETATO CON SUCCESSO!")
     print("    Tutti i dati sono pronti per essere utilizzati nella dashboard.")
 
