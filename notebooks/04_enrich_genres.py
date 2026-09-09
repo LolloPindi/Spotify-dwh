@@ -1,5 +1,5 @@
 """
-04_enrich_genres.py - Arricchimento Generi Musicali da Music Info (Last.fm)
+04_enrich_genres.py — Arricchimento Generi Musicali da Music Info (Last.fm)
 =============================================================================
 Questo script:
 1. Legge data/raw/Music Info.csv (50.684 tracce con spotify_id e tags Last.fm)
@@ -23,23 +23,23 @@ import psycopg2.extras
 from dotenv import load_dotenv
 from tqdm import tqdm
 
-# -- Config --------------------------------------------------------------------
+# ── Config ────────────────────────────────────────────────────────────────────
 load_dotenv()
 
 DB_HOST = os.getenv("DB_RECONCILED_HOST", "localhost")
 DB_PORT = os.getenv("DB_RECONCILED_PORT", "5432")
 DB_NAME = os.getenv("DB_RECONCILED_NAME", "spotify_reconciled")
 DB_USER = os.getenv("DB_RECONCILED_USER", "postgres")
-DB_PASS = os.getenv("DB_RECONCILED_PASSWORD", "")
+DB_PASS = os.getenv("DB_RECONCILED_PASSWORD", "Lollo")
 
 RAW_PATH = Path("data/raw/Music Info.csv")
 
 def sep(title="", width=70):
     print()
-    print("-" * width)
+    print("─" * width)
     if title:
         print(f"  {title}")
-        print("-" * width)
+        print("─" * width)
 
 def get_conn():
     return psycopg2.connect(
@@ -47,7 +47,7 @@ def get_conn():
         user=DB_USER, password=DB_PASS
     )
 
-# -- Mappa di Normalizzazione dei Generi --------------------------------------
+# ── Mappa di Normalizzazione dei Generi ──────────────────────────────────────
 # Ogni chiave è una sottostringa da cercare nel tag (case-insensitive).
 # L'ordine conta: i match più specifici devono stare PRIMA di quelli generici.
 GENRE_MAP = [
@@ -155,7 +155,7 @@ def normalize_genre(genre_col: str, tags_col: str) -> str | None:
     return "Other"
 
 
-# -- MAIN ---------------------------------------------------------------------
+# ── MAIN ─────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     sep("ARRICCHIMENTO GENERI DA MUSIC INFO (LAST.FM)")
 
@@ -182,17 +182,17 @@ if __name__ == "__main__":
     print("\n  Distribuzione generi (Music Info):")
     for genre, count in genre_dist.items():
         pct = 100 * count / len(df_clean)
-        print(f"  {genre:<20} {count:>6,}  ({pct:.1f}%)")
+        print(f"    {genre:<20} {count:>6,}  ({pct:.1f}%)")
 
-    # 3. Crea mappa spotify_id -> genre_norm
+    # 3. Crea mappa spotify_id → genre_norm
     id_to_genre = dict(zip(df_clean["spotify_id"], df_clean["genre_norm"]))
-    # Crea anche mappa artist_name -> genre_norm (majority vote)
+    # Crea anche mappa artist_name → genre_norm (majority vote)
     artist_genres = df_clean.groupby("artist")["genre_norm"].apply(
         lambda x: Counter(x.dropna()).most_common(1)[0][0] if Counter(x.dropna()) else None
     ).to_dict()
 
     # 4. Connetti al Reconciled DB e aggiungi colonne se mancanti
-    sep("3. AGGIORNAMENTO RECONCILED DB - track.lastfm_genre")
+    sep("3. AGGIORNAMENTO RECONCILED DB — track.lastfm_genre")
     conn = get_conn()
     cur = conn.cursor()
 
@@ -202,7 +202,7 @@ if __name__ == "__main__":
         ADD COLUMN IF NOT EXISTS lastfm_genre VARCHAR(100);
     """)
     conn.commit()
-    print("  Colonna lastfm_genre aggiunta a 'track' (se non esisteva)")
+    print("    Colonna lastfm_genre aggiunta a 'track' (se non esisteva)")
 
     # Leggi tutti i spotify_id dal Reconciled DB
     cur.execute("SELECT spotify_id FROM track")
@@ -226,16 +226,16 @@ if __name__ == "__main__":
         conn.commit()
     
     coverage_track = len(updates_track) / len(db_ids) * 100 if db_ids else 0
-    print(f"  Tracce aggiornate via spotify_id: {len(updates_track):,} / {len(db_ids):,} ({coverage_track:.1f}%)")
+    print(f"    Tracce aggiornate via spotify_id: {len(updates_track):,} / {len(db_ids):,} ({coverage_track:.1f}%)")
 
     # 5. Aggiorna artisti via majority vote (per tracce non matchate via ID)
-    sep("4. AGGIORNAMENTO RECONCILED DB - artist.lastfm_genre")
+    sep("4. AGGIORNAMENTO RECONCILED DB — artist.lastfm_genre")
     cur.execute("""
         ALTER TABLE artist
         ADD COLUMN IF NOT EXISTS lastfm_genre VARCHAR(100);
     """)
     conn.commit()
-    print("  Colonna lastfm_genre aggiunta a 'artist' (se non esisteva)")
+    print("    Colonna lastfm_genre aggiunta a 'artist' (se non esisteva)")
 
     # Prima: deriva il genere dell'artista dal genere delle sue tracce (già nel DB)
     cur.execute("""
@@ -262,10 +262,10 @@ if __name__ == "__main__":
         conn.commit()
     
     coverage_artist = len(updates_artist) / len(db_artists) * 100 if db_artists else 0
-    print(f"  Artisti aggiornati: {len(updates_artist):,} / {len(db_artists):,} ({coverage_artist:.1f}%)")
+    print(f"    Artisti aggiornati: {len(updates_artist):,} / {len(db_artists):,} ({coverage_artist:.1f}%)")
 
     # 6. Per artisti senza match diretto, deriva il genere dalle tracce già presenti in DB
-    sep("5. FALLBACK - Artista senza match: genere derivato dalle sue tracce")
+    sep("5. FALLBACK — Artista senza match: genere derivato dalle sue tracce")
     cur.execute("""
         UPDATE artist a
         SET lastfm_genre = sub.genre
@@ -282,7 +282,7 @@ if __name__ == "__main__":
     """)
     fallback_count = cur.rowcount
     conn.commit()
-    print(f"  Artisti aggiornati via fallback tracce: {fallback_count:,}")
+    print(f"   Artisti aggiornati via fallback tracce: {fallback_count:,}")
 
     # 7. Statistiche finali
     sep("6. STATISTICHE FINALI")
@@ -303,10 +303,10 @@ if __name__ == "__main__":
     """)
     print("\n  Distribuzione generi nel Reconciled DB (track):")
     for row in cur.fetchall():
-        print(f"  {row[0]:<20} {row[1]:>6,}")
+        print(f"    {row[0]:<20} {row[1]:>6,}")
     
     cur.close()
     conn.close()
     
     sep("COMPLETATO")
-    print("  Ora riesegui: python etl/pipeline.py per aggiornare il Data Warehouse.")
+    print("   Ora riesegui: python etl/pipeline.py per aggiornare il Data Warehouse.")
