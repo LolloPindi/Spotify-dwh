@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
 from tqdm import tqdm
  
-# ── Config ────────────────────────────────────────────────────────────────────
+# -- Config --------------------------------------------------------------------
 load_dotenv()
  
 DB_HOST = os.getenv("DB_RECONCILED_HOST", "localhost")
@@ -22,12 +22,12 @@ CLEANED = Path("data/cleaned")
 CHUNK   = 10_000   # righe per batch
 CUSTOM_NA = ['', 'NaN', 'NULL', 'None', 'nan', 'null']
  
-# ── Connessione SQLAlchemy (per query di verifica) ────────────────────────────
+# -- Connessione SQLAlchemy (per query di verifica) ----------------------------
 conn_str = f"postgresql+psycopg2://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
 engine   = create_engine(conn_str, pool_pre_ping=True)
  
 def get_pg_conn():
-    """Connessione psycopg2 diretta — più efficiente per bulk insert."""
+    """Connessione psycopg2 diretta - più efficiente per bulk insert."""
     return psycopg2.connect(
         host=DB_HOST, port=DB_PORT, dbname=DB_NAME,
         user=DB_USER, password=DB_PASS
@@ -35,21 +35,21 @@ def get_pg_conn():
  
 def sep(title="", w=70):
     print()
-    print("─" * w)
+    print("-" * w)
     if title:
         print(f"  {title}")
-        print("─" * w)
+        print("-" * w)
  
 def load_table(df: pd.DataFrame, table: str, chunksize: int = CHUNK):
     """
     Carica un DataFrame in PostgreSQL usando execute_values di psycopg2.
-    Molto più efficiente di to_sql(method='multi') — nessun limite di parametri.
+    Molto più efficiente di to_sql(method='multi') - nessun limite di parametri.
     """
     cols = list(df.columns)
     col_str = ", ".join(cols)
     total = len(df)
     n_chunks = (total // chunksize) + 1
-    print(f"  → {table}: {total:,} righe in {n_chunks} batch da {chunksize:,}")
+    print(f"  -> {table}: {total:,} righe in {n_chunks} batch da {chunksize:,}")
  
     conn = get_pg_conn()
     cur  = conn.cursor()
@@ -69,37 +69,37 @@ def load_table(df: pd.DataFrame, table: str, chunksize: int = CHUNK):
                 page_size=chunksize
             )
         conn.commit()
-        print(f"  ✓  {table} caricata.")
+        print(f"  {table} caricata.")
     except Exception as e:
         conn.rollback()
-        print(f"  ✗  Errore su {table}: {e}")
+        print(f"  Errore su {table}: {e}")
         raise
     finally:
         cur.close()
         conn.close()
  
-# ── Verifica connessione ──────────────────────────────────────────────────────
+# -- Verifica connessione ------------------------------------------------------
 sep("VERIFICA CONNESSIONE")
 try:
     with engine.connect() as conn:
         result = conn.execute(text("SELECT version()"))
         print(f"  {result.fetchone()[0][:60]}")
-    print("  ✓  Connessione OK")
+    print("  Connessione OK")
 except Exception as e:
-    print(f"  ✗  Errore di connessione: {e}")
+    print(f"  Errore di connessione: {e}")
     print("     Verifica che PostgreSQL sia attivo e che .env sia configurato.")
     raise SystemExit(1)
  
-# ── Pulizia tabelle (per riesecuzione idempotente) ────────────────────────────
+# -- Pulizia tabelle (per riesecuzione idempotente) ----------------------------
 sep("PULIZIA TABELLE (idempotenza)")
 print("  Svuoto le tabelle nell'ordine corretto (rispetto FK)...")
 with engine.begin() as conn:
     for t in ["chart_entry", "track_artist", "track", "album", "artist",
               "country", "snapshot_date"]:
         conn.execute(text(f"TRUNCATE TABLE {t} CASCADE"))
-        print(f"  ✓  {t} svuotata")
+        print(f"  {t} svuotata")
  
-# ── 1. SNAPSHOT_DATE ──────────────────────────────────────────────────────────
+# -- 1. SNAPSHOT_DATE ----------------------------------------------------------
 sep("1. SNAPSHOT_DATE")
 chart_raw = pd.read_csv(CLEANED / "chart_entries.csv", parse_dates=["snapshot_date"], keep_default_na=False, na_values=CUSTOM_NA)
 dates = chart_raw["snapshot_date"].dropna().unique()
@@ -122,7 +122,7 @@ date_df["snapshot_date"] = date_df["snapshot_date"].dt.date
  
 load_table(date_df, "snapshot_date", chunksize=1000)
  
-# ── 2. COUNTRY (codici dal dataset — senza arricchimento per ora) ─────────────
+# -- 2. COUNTRY (codici dal dataset - senza arricchimento per ora) -------------
 sep("2. COUNTRY")
 print("  Nota: arricchimento geografico (continent, income_group, GDP)")
 print("  sarà aggiunto nella fase di ETL verso il DWH.")
@@ -131,7 +131,7 @@ print("  Qui carichiamo solo i codici ISO-2 presenti nel dataset.")
 countries = sorted(chart_raw["country"].dropna().unique())
 country_df = pd.DataFrame({
     "country_code": countries,
-    "country_name": countries,   # placeholder — verrà arricchito nell'ETL
+    "country_name": countries,   # placeholder - verrà arricchito nell'ETL
     "continent":    "Unknown",
     "subregion":    None,
     "language_primary": None,
@@ -141,7 +141,7 @@ country_df = pd.DataFrame({
 })
 load_table(country_df, "country", chunksize=200)
  
-# ── 3. ARTIST ─────────────────────────────────────────────────────────────────
+# -- 3. ARTIST -----------------------------------------------------------------
 sep("3. ARTIST")
 artists = pd.read_csv(CLEANED / "artists.csv", keep_default_na=False, na_values=CUSTOM_NA)
 n_before = len(artists)
@@ -149,15 +149,15 @@ artists = artists[artists["name"].notna() & (artists["name"].str.strip() != "")]
 print(f"  Artisti con nome NULL rimossi: {n_before - len(artists)}")
 load_table(artists, "artist")
  
-# ── 4. ALBUM ──────────────────────────────────────────────────────────────────
+# -- 4. ALBUM ------------------------------------------------------------------
 sep("4. ALBUM")
 albums = pd.read_csv(CLEANED / "albums.csv", parse_dates=["release_date"], keep_default_na=False, na_values=CUSTOM_NA)
-# album_type: lo schema prevede un CHECK — impostiamo NULL per ora
+# album_type: lo schema prevede un CHECK - impostiamo NULL per ora
 albums["album_type"] = None
 albums["release_date"] = albums["release_date"].where(albums["release_date"].notna(), None)
 load_table(albums, "album")
  
-# ── 5. TRACK ─────────────────────────────────────────────────────────────────
+# -- 5. TRACK -----------------------------------------------------------------
 sep("5. TRACK")
 tracks = pd.read_csv(CLEANED / "tracks.csv", keep_default_na=False, na_values=CUSTOM_NA)
 # Rinomina colonne per matchare lo schema SQL
@@ -166,19 +166,19 @@ tracks = tracks.rename(columns={"name": "name"})
 tracks["is_explicit"] = tracks["is_explicit"].astype(bool)
 load_table(tracks, "track")
  
-# ── 6. TRACK_ARTIST ──────────────────────────────────────────────────────────
+# -- 6. TRACK_ARTIST ----------------------------------------------------------
 sep("6. TRACK_ARTIST")
 track_artist = pd.read_csv(CLEANED / "track_artist.csv", keep_default_na=False, na_values=CUSTOM_NA)
 load_table(track_artist, "track_artist")
  
-# ── 7. CHART_ENTRY ────────────────────────────────────────────────────────────
-sep("7. CHART_ENTRY  (2M+ righe — il più lento)")
+# -- 7. CHART_ENTRY ------------------------------------------------------------
+sep("7. CHART_ENTRY  (2M+ righe - il più lento)")
 chart = pd.read_csv(CLEANED / "chart_entries.csv", parse_dates=["snapshot_date"], keep_default_na=False, na_values=CUSTOM_NA)
 chart["snapshot_date"] = chart["snapshot_date"].dt.date
 chart = chart.rename(columns={"country": "country_code"})
 load_table(chart, "chart_entry", chunksize=CHUNK)
  
-# ── Verifica integrità finale ──────────────────────────────────────────────────
+# -- Verifica integrità finale --------------------------------------------------
 sep("VERIFICA INTEGRITÀ FINALE")
 with engine.connect() as conn:
     queries = {
@@ -213,9 +213,9 @@ with engine.connect() as conn:
         "WHERE sd.snapshot_date IS NULL"
     )).scalar()
  
-    print(f"  Orphan track FK:   {orphan_track}   {'✓' if orphan_track==0 else '⚠️'}")
-    print(f"  Orphan country FK: {orphan_country}   {'✓' if orphan_country==0 else '⚠️'}")
-    print(f"  Orphan date FK:    {orphan_date}   {'✓' if orphan_date==0 else '⚠️'}")
+    print(f"  Orphan track FK:   {orphan_track}   {'OK' if orphan_track==0 else 'WARN'}")
+    print(f"  Orphan country FK: {orphan_country}   {'OK' if orphan_country==0 else 'WARN'}")
+    print(f"  Orphan date FK:    {orphan_date}   {'OK' if orphan_date==0 else 'WARN'}")
  
 sep()
 print("  Reconciled DB popolato. Prossimo step: design star schema.")

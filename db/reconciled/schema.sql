@@ -1,5 +1,5 @@
 -- ============================================================
--- SPOTIFY GLOBAL CHARTS — Reconciled Database
+-- SPOTIFY GLOBAL CHARTS - Reconciled Database
 -- Schema PostgreSQL
 -- ============================================================
 -- Grain di CHART_ENTRY: una riga = un brano in classifica
@@ -40,7 +40,7 @@ COMMENT ON TABLE snapshot_date IS
 -- Contiene sia i codici ISO dal dataset Spotify sia i metadati
 -- geografici aggiunti da fonti esterne (World Bank / ISO 3166).
 -- Colonne income_group, gdp_per_capita, population derivano
--- dall''arricchimento — non presenti nel CSV originale.
+-- dall''arricchimento - non presenti nel CSV originale.
 -- ------------------------------------------------------------
 CREATE TABLE country (
     country_code        CHAR(2)         PRIMARY KEY,  -- ISO 3166-1 alpha-2
@@ -129,7 +129,7 @@ CREATE TABLE track_artist (
 
 -- ------------------------------------------------------------
 -- CHART_ENTRY (fatto del reconciled DB)
--- Grain: (spotify_id, country_code, snapshot_date) — unico.
+-- Grain: (spotify_id, country_code, snapshot_date) - unico.
 -- daily_rank: non additivo (si usa MIN per peak, AVG per trend).
 -- popularity: semi-additivo (medio su tempo, non su paese).
 -- ------------------------------------------------------------

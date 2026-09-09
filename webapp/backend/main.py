@@ -33,7 +33,7 @@ DB_HOST = os.getenv("DB_RECONCILED_HOST", "localhost")
 DB_PORT = os.getenv("DB_RECONCILED_PORT", "5432")
 DB_DWH_NAME = os.getenv("DB_DWH_NAME", "spotify_dw")
 DB_USER = os.getenv("DB_RECONCILED_USER", "postgres")
-DB_PASS = os.getenv("DB_RECONCILED_PASSWORD", "Lollo")
+DB_PASS = os.getenv("DB_RECONCILED_PASSWORD", "")
 
 STATIC_DIR = Path(__file__).parent / "static"
 CACHE_DIR = Path(__file__).parent / "cache"

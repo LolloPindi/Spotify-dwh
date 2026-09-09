@@ -1,5 +1,5 @@
 """
-05_fetch_spotify_genres.py — Recupero Generi Artisti da Spotify Web API
+05_fetch_spotify_genres.py - Recupero Generi Artisti da Spotify Web API
 ========================================================================
 Strategia:
   1. Carica tutti gli artisti (nome) dal Reconciled DB
@@ -38,7 +38,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# ── Config ────────────────────────────────────────────────────────────────────
+# -- Config --------------------------------------------------------------------
 SPOTIFY_CLIENT_ID     = os.getenv("SPOTIFY_CLIENT_ID", "")
 SPOTIFY_CLIENT_SECRET = os.getenv("SPOTIFY_CLIENT_SECRET", "")
 
@@ -46,16 +46,16 @@ DB_HOST = os.getenv("DB_RECONCILED_HOST", "localhost")
 DB_PORT = os.getenv("DB_RECONCILED_PORT", "5432")
 DB_NAME = os.getenv("DB_RECONCILED_NAME", "spotify_reconciled")
 DB_USER = os.getenv("DB_RECONCILED_USER", "postgres")
-DB_PASS = os.getenv("DB_RECONCILED_PASSWORD", "Lollo")
+DB_PASS = os.getenv("DB_RECONCILED_PASSWORD", "")
 
 CHECKPOINT_FILE = Path("data/raw/spotify_genres_checkpoint.csv")
 REQUEST_DELAY   = 0.12   # ~8 req/sec (Spotify consente ~10/sec con CC)
 
 def sep(title="", width=70):
-    print(f"\n{'─'*width}")
+    print(f"\n{'-'*width}")
     if title:
         print(f"  {title}")
-        print(f"{'─'*width}")
+        print(f"{'-'*width}")
 
 def get_conn():
     return psycopg2.connect(
@@ -63,7 +63,7 @@ def get_conn():
         user=DB_USER, password=DB_PASS
     )
 
-# ── Spotify Auth ──────────────────────────────────────────────────────────────
+# -- Spotify Auth --------------------------------------------------------------
 class SpotifyClient:
     TOKEN_URL = "https://accounts.spotify.com/api/token"
     API_BASE  = "https://api.spotify.com/v1"
@@ -85,7 +85,7 @@ class SpotifyClient:
         data = resp.json()
         self._token        = data["access_token"]
         self._token_expiry = time.time() + data["expires_in"] - 30  # 30s di margine
-        print(f"  🔑 Token aggiornato (scade alle {datetime.fromtimestamp(self._token_expiry).strftime('%H:%M:%S')})")
+        print(f"  Token aggiornato (scade alle {datetime.fromtimestamp(self._token_expiry).strftime('%H:%M:%S')})")
 
     def _headers(self):
         if time.time() >= self._token_expiry:
@@ -107,7 +107,7 @@ class SpotifyClient:
                 )
                 if resp.status_code == 429:
                     wait = int(resp.headers.get("Retry-After", 5))
-                    print(f"\n  ⚠️  Rate limit! Attesa {wait}s...")
+                    print(f"\n  WARN  Rate limit! Attesa {wait}s...")
                     time.sleep(wait)
                     continue
                 if resp.status_code == 401:
@@ -125,8 +125,8 @@ class SpotifyClient:
         return None
 
 
-# ── Genre Normalizzazione ─────────────────────────────────────────────────────
-# Mappa Spotify raw genres → nostre categorie standard
+# -- Genre Normalizzazione -----------------------------------------------------
+# Mappa Spotify raw genres -> nostre categorie standard
 GENRE_NORMALIZATION = [
     # K-Pop (prima di Pop)
     (["k-pop", "kpop", "korean", "k pop", "j-pop", "j pop",
@@ -199,13 +199,13 @@ def name_similarity(a: str, b: str) -> float:
     return 0.0
 
 
-# ── MAIN ─────────────────────────────────────────────────────────────────────
+# -- MAIN ---------------------------------------------------------------------
 if __name__ == "__main__":
     sep("RECUPERO GENERI ARTISTI DA SPOTIFY WEB API")
     
     if not SPOTIFY_CLIENT_ID or SPOTIFY_CLIENT_ID == "YOUR_CLIENT_ID_HERE":
-        print("  ✗  ERRORE: SPOTIFY_CLIENT_ID non configurato nel .env!")
-        print("     Aggiungi SPOTIFY_CLIENT_ID e SPOTIFY_CLIENT_SECRET al file .env")
+        print("    ERRORE: SPOTIFY_CLIENT_ID non configurato nel .env!")
+        print("  Aggiungi SPOTIFY_CLIENT_ID e SPOTIFY_CLIENT_SECRET al file .env")
         exit(1)
     
     # 1. Carica checkpoint esistente
@@ -215,7 +215,7 @@ if __name__ == "__main__":
             reader = csv.DictReader(f)
             for row in reader:
                 already_processed[row["artist_id"]] = row["genre"]
-        print(f"  📂 Checkpoint caricato: {len(already_processed):,} artisti già processati")
+        print(f"  Checkpoint caricato: {len(already_processed):,} artisti già processati")
     else:
         # Crea il file con header
         with open(CHECKPOINT_FILE, "w", encoding="utf-8", newline="") as f:
@@ -239,12 +239,12 @@ if __name__ == "__main__":
     print(f"  Da processare ora:            {len(to_process):,}")
     
     if not to_process:
-        print("\n  ✓  Tutti gli artisti già processati! Procedo con l'aggiornamento DB.")
+        print("\n    Tutti gli artisti già processati! Procedo con l'aggiornamento DB.")
     else:
         stima_secondi = len(to_process) * (REQUEST_DELAY + 0.15)
         stima_minuti  = stima_secondi / 60
-        print(f"  ⏱️  Stima durata: {stima_minuti:.0f} minuti ({stima_secondi:.0f}s)")
-        print(f"     Velocità: ~{1/REQUEST_DELAY:.0f} req/s")
+        print(f"  Stima durata: {stima_minuti:.0f} minuti ({stima_secondi:.0f}s)")
+        print(f"  Velocità: ~{1/REQUEST_DELAY:.0f} req/s")
 
     # 3. Chiedi conferma prima di partire
     if to_process:
@@ -294,9 +294,9 @@ if __name__ == "__main__":
         checkpoint_handle.close()
         elapsed_total = time.time() - start_time
         
-        print(f"\n  ✓  Completato in {elapsed_total/60:.1f} minuti")
-        print(f"     Artisti con genere trovato: {matched:,}")
-        print(f"     Non trovati/senza match:    {not_found:,}")
+        print(f"\n    Completato in {elapsed_total/60:.1f} minuti")
+        print(f"  Artisti con genere trovato: {matched:,}")
+        print(f"  Non trovati/senza match:    {not_found:,}")
 
     # 5. Ricarica checkpoint completo e aggiorna DB
     sep("3. AGGIORNAMENTO RECONCILED DB")
@@ -323,7 +323,7 @@ if __name__ == "__main__":
             page_size=1000
         )
         conn.commit()
-        print(f"  ✓  {len(updates):,} artisti aggiornati nel DB")
+        print(f"  {len(updates):,} artisti aggiornati nel DB")
     
     # Statistiche finali
     cur.execute("SELECT COUNT(*), COUNT(lastfm_genre) FROM artist")
@@ -337,10 +337,10 @@ if __name__ == "__main__":
     """)
     print("\n  Distribuzione generi:")
     for row in cur.fetchall():
-        print(f"    {row[0]:<20} {row[1]:>6,}")
+        print(f"  {row[0]:<20} {row[1]:>6,}")
     
-    # 6. Applica fallback: artisti senza match da Spotify → genere da tracce
-    sep("4. FALLBACK — Artista senza genere Spotify: deriva dalle sue tracce")
+    # 6. Applica fallback: artisti senza match da Spotify -> genere da tracce
+    sep("4. FALLBACK - Artista senza genere Spotify: deriva dalle sue tracce")
     cur.execute("""
         UPDATE artist a
         SET lastfm_genre = sub.genre
@@ -357,7 +357,7 @@ if __name__ == "__main__":
     """)
     fallback_count = cur.rowcount
     conn.commit()
-    print(f"  ✓  {fallback_count:,} artisti aggiornati via fallback tracce")
+    print(f"  {fallback_count:,} artisti aggiornati via fallback tracce")
     
     cur.execute("SELECT COUNT(*), COUNT(lastfm_genre) FROM artist")
     tot, cov = cur.fetchone()
@@ -367,4 +367,4 @@ if __name__ == "__main__":
     conn.close()
     
     sep("COMPLETATO")
-    print("  ✓  Ora riesegui: python etl/pipeline.py per aggiornare il Data Warehouse.")
+    print("  Ora riesegui: python etl/pipeline.py per aggiornare il Data Warehouse.")

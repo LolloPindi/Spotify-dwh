@@ -10,7 +10,7 @@ import psycopg2.extras
 from dotenv import load_dotenv
 from tqdm import tqdm
 
-# ── Config ────────────────────────────────────────────────────────────────────
+# -- Config --------------------------------------------------------------------
 load_dotenv()
 
 DB_HOST     = os.getenv("DB_RECONCILED_HOST",     "localhost")
@@ -22,7 +22,7 @@ DB_PASS     = os.getenv("DB_RECONCILED_PASSWORD", "")
 
 CHUNK_SIZE = 20_000
 
-# ── Macro-genere (gerarchia dim_genere) ──────────────────────────────────────
+# -- Macro-genere (gerarchia dim_genere) --------------------------------------
 # Ordine rilevante: il primo match vince.
 MACRO_GENRE_RULES = [
     ('hip hop',     'Hip-Hop/Rap'),
@@ -56,8 +56,8 @@ MACRO_GENRE_RULES = [
     ('latin',       'Latin/World'),
     ('reggae',      'Latin/World'),
     ('afro',        'Latin/World'),
-    ('k-pop',       'Latin/World'),
-    ('j-pop',       'Latin/World'),
+    ('k-pop',       'Pop/R&B'),
+    ('j-pop',       'Pop/R&B'),
     ('world',       'Latin/World'),
 ]
 
@@ -70,7 +70,7 @@ def get_macro_genre(genre_name: str | None) -> str:
             return macro
     return 'Other'
 
-# ── Geopolitical Dictionary ──────────────────────────────────────────────────
+# -- Geopolitical Dictionary --------------------------------------------------
 COUNTRY_METADATA = {
     "GL": ["Global",        "Global",                           "English",                          "High income",          8000000000, 15000.0],
     "AE": ["Asia",          "Western Asia",                     "Arabic",                           "High income",            9516000, 52977.0],
@@ -161,10 +161,10 @@ def execute_query(conn, query, params=None):
 
 def sep(title="", w=75):
     print()
-    print("═" * w)
+    print("-" * w)
     if title:
         print(f"  {title}")
-        print("═" * w)
+        print("-" * w)
 
 def discretize_feature(val):
     if val is None:
@@ -177,12 +177,120 @@ def discretize_feature(val):
     else:
         return 'Medium'
 
-# ── Main ETL ─────────────────────────────────────────────────────────────────
+# -- Profilazione qualità dati -------------------------------------------------
+# Specifica: quali colonne profilare e i range di validità attesi per dominio
+_PROFILE_SOURCE = {
+    "track": {
+        "cols": ["danceability", "energy", "valence", "duration_ms", "lastfm_genre"],
+        "ranges": {"danceability": (0.0, 1.0), "energy": (0.0, 1.0),
+                   "valence": (0.0, 1.0), "duration_ms": (1000, 900000)},
+    },
+    "chart_entry": {
+        "cols": ["daily_rank", "popularity", "daily_movement", "weekly_movement"],
+        "ranges": {"daily_rank": (1, 200), "popularity": (0, 100)},
+    },
+    "artist": {
+        "cols": ["lastfm_genre"],
+        "ranges": {},
+    },
+}
+
+_PROFILE_DWH = {
+    "dim_traccia": {
+        "cols": ["danceability", "energy", "valence", "duration_ms", "genre_key"],
+        "ranges": {"danceability": (0.0, 1.0), "energy": (0.0, 1.0),
+                   "valence": (0.0, 1.0), "duration_ms": (1000, 900000)},
+    },
+    "fact_chart_entry": {
+        "cols": ["daily_rank", "popularity", "daily_movement", "weekly_movement"],
+        "ranges": {"daily_rank": (1, 200), "popularity": (0, 100)},
+    },
+    "dim_artista": {
+        "cols": ["genre_key"],
+        "ranges": {},
+    },
+}
+
+# Mappa semantica sorgente -> DWH per il confronto before/after
+_SEMANTIC_MAP = [
+    ("track",        "danceability",    "dim_traccia",      "danceability"),
+    ("track",        "energy",          "dim_traccia",      "energy"),
+    ("track",        "valence",         "dim_traccia",      "valence"),
+    ("track",        "duration_ms",     "dim_traccia",      "duration_ms"),
+    ("track",        "lastfm_genre",    "dim_traccia",      "genre_key"),
+    ("artist",       "lastfm_genre",    "dim_artista",      "genre_key"),
+    ("chart_entry",  "daily_rank",      "fact_chart_entry", "daily_rank"),
+    ("chart_entry",  "popularity",      "fact_chart_entry", "popularity"),
+    ("chart_entry",  "daily_movement",  "fact_chart_entry", "daily_movement"),
+    ("chart_entry",  "weekly_movement", "fact_chart_entry", "weekly_movement"),
+]
+
+
+def _profile_table(conn, table: str, cols: list, ranges: dict) -> list[dict]:
+    rows = []
+    with conn.cursor() as cur:
+        cur.execute(f"SELECT COUNT(*) FROM {table}")
+        total = cur.fetchone()[0]
+    for col in cols:
+        with conn.cursor() as cur:
+            cur.execute(f"SELECT COUNT({col}), COUNT(DISTINCT {col}) FROM {table}")
+            non_null, cardinality = cur.fetchone()
+        completeness = 100.0 * non_null / total if total else 0.0
+        in_range = None
+        if col in ranges:
+            lo, hi = ranges[col]
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"SELECT COUNT(*) FROM {table} WHERE {col} IS NOT NULL AND {col} BETWEEN %s AND %s",
+                    (lo, hi)
+                )
+                cnt = cur.fetchone()[0]
+            in_range = 100.0 * cnt / non_null if non_null else None
+        rows.append({"table": table, "col": col, "total": total,
+                     "non_null": non_null, "completeness": completeness,
+                     "cardinality": cardinality, "in_range": in_range})
+    return rows
+
+
+def _print_profile(profiles: list[dict]):
+    print(f"\n  {'Tabella':<22} {'Colonna':<20} {'Complet.':>9} {'Cardinalita':>13} {'In range':>10}")
+    print(f"  {'-'*22} {'-'*20} {'-'*9} {'-'*13} {'-'*10}")
+    for p in profiles:
+        ir = f"{p['in_range']:.1f}%" if p['in_range'] is not None else "-"
+        print(f"  {p['table']:<22} {p['col']:<20} {p['completeness']:>7.1f}%  "
+              f"{p['cardinality']:>13,} {ir:>10}")
+
+
+def _print_comparison(before: list[dict], after: list[dict]):
+    bmap = {(p["table"], p["col"]): p for p in before}
+    amap = {(p["table"], p["col"]): p for p in after}
+    print(f"\n  {'Attributo':<22} {'Sorg. complet.':>16} {'DWH complet.':>14} {'Delta':>7} {'In range DWH':>13}")
+    print(f"  {'-'*22} {'-'*16} {'-'*14} {'-'*7} {'-'*13}")
+    for src_t, src_c, dwh_t, dwh_c in _SEMANTIC_MAP:
+        b = bmap.get((src_t, src_c))
+        a = amap.get((dwh_t, dwh_c))
+        if not b or not a:
+            continue
+        delta = a["completeness"] - b["completeness"]
+        delta_s = f"{delta:+.1f}pp" if abs(delta) > 0.05 else "  -"
+        ir = f"{a['in_range']:.1f}%" if a["in_range"] is not None else "-"
+        label = src_c if src_c != "lastfm_genre" else f"genere ({src_t[:5]})"
+        print(f"  {label:<22} {b['completeness']:>13.1f}%  {a['completeness']:>12.1f}%  "
+              f"{delta_s:>7} {ir:>13}")
+
+# -- Main ETL -----------------------------------------------------------------
 def run_etl():
     conn_rec = get_conn(DB_REC_NAME)
     conn_dwh = get_conn(DB_DWH_NAME)
 
     try:
+        # 0. PROFILAZIONE SORGENTE (before)
+        sep("0. PROFILAZIONE QUALITÀ - SORGENTE (before ETL)")
+        source_profiles = []
+        for table, spec in _PROFILE_SOURCE.items():
+            source_profiles += _profile_table(conn_rec, table, spec["cols"], spec["ranges"])
+        _print_profile(source_profiles)
+
         # 1. SVUOTAMENTO DWH
         sep("1. PULIZIA E PREPARAZIONE DWH")
         with conn_dwh.cursor() as cur:
@@ -191,7 +299,7 @@ def run_etl():
                       "dim_traccia", "dim_artista", "dim_album",
                       "dim_genere"]:
                 cur.execute(f"TRUNCATE TABLE {t} CASCADE")
-                print(f"  ✓  DWH: {t} svuotata")
+                print(f"    DWH: {t} svuotata")
         conn_dwh.commit()
 
         # 2. DIM_TEMPO
@@ -212,7 +320,7 @@ def run_etl():
                 tempo_rows
             )
         conn_dwh.commit()
-        print(f"  ✓  {len(tempo_rows):,} righe in dim_tempo")
+        print(f"    {len(tempo_rows):,} righe in dim_tempo")
 
         # 3. DIM_PAESE
         sep("3. POPOLAMENTO DIM_PAESE")
@@ -236,9 +344,9 @@ def run_etl():
                 paese_rows
             )
         conn_dwh.commit()
-        print(f"  ✓  {len(paese_rows):,} righe in dim_paese")
+        print(f"    {len(paese_rows):,} righe in dim_paese")
 
-        # 4. DIM_GENERE (dimensione conformata — popolata PRIMA di traccia e artista)
+        # 4. DIM_GENERE (dimensione conformata - popolata PRIMA di traccia e artista)
         sep("4. POPOLAMENTO DIM_GENERE (dimensione conformata)")
         genres_track  = execute_query(conn_rec, "SELECT DISTINCT lastfm_genre FROM track  WHERE lastfm_genre IS NOT NULL")
         genres_artist = execute_query(conn_rec, "SELECT DISTINCT lastfm_genre FROM artist WHERE lastfm_genre IS NOT NULL")
@@ -257,9 +365,9 @@ def run_etl():
                 page_size=500
             )
         conn_dwh.commit()
-        print(f"  ✓  {len(genre_rows):,} generi in dim_genere")
+        print(f"    {len(genre_rows):,} generi in dim_genere")
 
-        # Lookup genere (nome → genre_key) — usato subito sotto
+        # Lookup genere (nome -> genre_key) - usato subito sotto
         dwh_genres = {name: key for key, name in execute_query(
             conn_dwh, "SELECT genre_key, genre_name FROM dim_genere"
         )}
@@ -277,7 +385,7 @@ def run_etl():
             mood_band    = discretize_feature(valence)
             energy_band  = discretize_feature(energy)
             valence_band = mood_band
-            genre_key    = dwh_genres.get(genre)  # FK conformata → dim_genere
+            genre_key    = dwh_genres.get(genre)  # FK conformata -> dim_genere
             traccia_rows.append((
                 spotify_id, name, duration_ms, is_explicit,
                 danceability, energy, valence,
@@ -296,7 +404,7 @@ def run_etl():
             )
         conn_dwh.commit()
         genre_filled_t = sum(1 for r in traccia_rows if r[10] is not None)
-        print(f"  ✓  {len(traccia_rows):,} righe in dim_traccia")
+        print(f"    {len(traccia_rows):,} righe in dim_traccia")
         print(f"       Genere disponibile: {genre_filled_t:,}/{len(traccia_rows):,} ({100*genre_filled_t/max(len(traccia_rows),1):.1f}%)")
 
         # 6. DIM_ARTISTA
@@ -305,7 +413,7 @@ def run_etl():
         artista_rows = []
         for r in rec_artists:
             artist_id, name, lastfm_genre = r[0], r[1], r[2]
-            genre_key = dwh_genres.get(lastfm_genre)  # FK conformata → dim_genere
+            genre_key = dwh_genres.get(lastfm_genre)  # FK conformata -> dim_genere
             artista_rows.append((artist_id, name, genre_key, lastfm_genre))  # genre_raw = lastfm_genre (tracciabilità)
         with conn_dwh.cursor() as cur:
             psycopg2.extras.execute_values(
@@ -315,7 +423,7 @@ def run_etl():
             )
         conn_dwh.commit()
         genre_filled_a = sum(1 for r in artista_rows if r[2] is not None)
-        print(f"  ✓  {len(artista_rows):,} righe in dim_artista")
+        print(f"    {len(artista_rows):,} righe in dim_artista")
         print(f"       Genere disponibile: {genre_filled_a:,}/{len(artista_rows):,} ({100*genre_filled_a/max(len(artista_rows),1):.1f}%)")
 
         # 7. DIM_ALBUM
@@ -334,17 +442,17 @@ def run_etl():
                 album_rows
             )
         conn_dwh.commit()
-        print(f"  ✓  {len(album_rows):,} righe in dim_album")
+        print(f"    {len(album_rows):,} righe in dim_album")
 
-        # ── Lookup surrogate keys ────────────────────────────────────────────
+        # -- Lookup surrogate keys --------------------------------------------
         sep("CARICAMENTO MAPPE SURROGATE KEYS")
         dwh_countries = {code: key for key, code in execute_query(conn_dwh, "SELECT country_key, country_code FROM dim_paese")}
         dwh_tracks    = {sid:  key for key, sid  in execute_query(conn_dwh, "SELECT track_key,   spotify_id  FROM dim_traccia")}
         dwh_artists   = {aid:  key for key, aid  in execute_query(conn_dwh, "SELECT artist_key,  artist_id   FROM dim_artista")}
         dwh_albums    = {aid:  key for key, aid  in execute_query(conn_dwh, "SELECT album_key,   album_id    FROM dim_album")}
-        print("  ✓  Mappe surrogate caricate.")
+        print("    Mappe surrogate caricate.")
 
-        # ── Pre-calcolo n_countries_charted con bisect ───────────────────────
+        # -- Pre-calcolo n_countries_charted con bisect -----------------------
         # Nota: COUNT(DISTINCT country_code) OVER (...) non è supportato in
         # PostgreSQL come window function. Si usa ricerca binaria su array
         # ordinato delle prime entry per paese, con complessità O(n log k).
@@ -360,9 +468,9 @@ def run_etl():
             track_min_dates[sid].append(min_dt)
         for sid in track_min_dates:
             track_min_dates[sid].sort()
-        print("  ✓  Mappa cumulativa country pre-calcolata.")
+        print("   Mappa cumulativa country pre-calcolata.")
 
-        # ── Pre-caricamento relazioni track→artist ───────────────────────────
+        # -- Pre-caricamento relazioni track->artist ---------------------------
         print("  Carico relazioni track_artist in memoria...")
         rec_track_artist = execute_query(conn_rec, "SELECT spotify_id, artist_id FROM track_artist")
         track_artists: dict[str, list] = {}
@@ -370,11 +478,11 @@ def run_etl():
             if sid not in track_artists:
                 track_artists[sid] = []
             track_artists[sid].append(aid)
-        print(f"  ✓  {len(track_artists):,} brani con relazioni artista caricate.")
+        print(f"   {len(track_artists):,} brani con relazioni artista caricate.")
 
-        # 8. BRIDGE_ARTISTA (pattern Kimball per N:M)
+        # 8. BRIDGE_ARTISTA 
         sep("8. COSTRUZIONE BRIDGE_ARTISTA (N:M Kimball pattern)")
-        # Per ogni insieme unico di artisti → assegna un artist_group_key
+        # Per ogni insieme unico di artisti -> assegna un artist_group_key
         # weight_factor = 1/n_artisti: consente aggregazioni pesate senza doppio conteggio
         group_key_map: dict[frozenset, int] = {}
         next_group_key = 1
@@ -404,7 +512,7 @@ def run_etl():
             )
         conn_dwh.commit()
         n_groups = next_group_key - 1
-        print(f"  ✓  Bridge: {len(bridge_rows):,} coppie (group × artista), {n_groups:,} gruppi distinti")
+        print(f"    Bridge: {len(bridge_rows):,} coppie (group × artista), {n_groups:,} gruppi distinti")
 
         # 9. FACT_CHART_ENTRY (grana evento: brano × paese × data)
         sep("9. POPOLAMENTO FACT_CHART_ENTRY (grana evento, ~2,1M righe)")
@@ -480,7 +588,7 @@ def run_etl():
                 )
                 total_inserted += len(batch)
                 batch = []
-                print(f"    → Fatti caricati: {total_inserted:,}...")
+                print(f"    -> Fatti caricati: {total_inserted:,}...")
 
         if batch:
             psycopg2.extras.execute_values(
@@ -498,7 +606,7 @@ def run_etl():
         conn_dwh.commit()
         cur_rec.close()
         conn_rec_stream.close()
-        print(f"  ✓  Fatto: {total_inserted:,} righe (lette: {total_read:,}, saltate: {total_skipped:,})")
+        print(f"    Fatto: {total_inserted:,} righe (lette: {total_read:,}, saltate: {total_skipped:,})")
 
         # 10. VERIFICA INTEGRITÀ
         sep("10. VERIFICA INTEGRITÀ DWH")
@@ -511,11 +619,22 @@ def run_etl():
         sig_str  = f"{total_inserted}|{fact_sum[0]}|{fact_sum[1]}"
         cube_sig = hashlib.md5(sig_str.encode()).hexdigest()
         print(f"\n  Firma DWH: {cube_sig}")
+
+        # 11. PROFILAZIONE DWH (after) + confronto before/after
+        sep("11. PROFILAZIONE QUALITÀ - DWH (after ETL)")
+        dwh_profiles = []
+        for table, spec in _PROFILE_DWH.items():
+            dwh_profiles += _profile_table(conn_dwh, table, spec["cols"], spec["ranges"])
+        _print_profile(dwh_profiles)
+
+        sep("CONFRONTO QUALITÀ: SORGENTE -> DWH")
+        _print_comparison(source_profiles, dwh_profiles)
+
         sep("ETL COMPLETATO CON SUCCESSO!")
 
     except Exception as e:
         conn_dwh.rollback()
-        print(f"\n  ✗ Errore fatale: {e}", file=sys.stderr)
+        print(f"\n  Errore fatale: {e}", file=sys.stderr)
         raise
     finally:
         conn_rec.close()

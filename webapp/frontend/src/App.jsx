@@ -536,7 +536,7 @@ function App() {
         setLoading(false);
       } catch (err) {
         console.error(err);
-        setLoadingMsg("Impossibile caricare il Data Warehouse. Verifica che il backend sia attivo.");
+        setLoadingMsg("Impossibile caricare il motore DuckDB-WASM. Prova a ricaricare la pagina.");
       }
     }
     setup();
@@ -1412,7 +1412,6 @@ function App() {
       <div className="loader-container">
         <div className="loader-spinner"></div>
         <div className="loader-text">Configurazione Data Warehouse locale...</div>
-        <div className="loader-progress">{loadingMsg}</div>
       </div>
     );
   }
@@ -1995,7 +1994,7 @@ function App() {
                 </div>
                 <div className="slide-card" style={{ padding: '12px 14px', borderLeft: '3px solid rgba(255,255,255,0.15)' }}>
                   <p style={{ fontSize: '0.7rem', margin: 0, color: 'var(--text-secondary)' }}>
-                    Query eseguita live su DuckDB-WASM · 2,1M righe · partition pruning su <code style={{ color: '#1DB954' }}>date_key</code>
+                    Query eseguita live · 2,1M righe · partition pruning su <code style={{ color: '#1DB954' }}>date_key</code>
                   </p>
                 </div>
               </div>
@@ -2040,7 +2039,7 @@ function App() {
             <div className="glass-panel" style={{ padding: '16px 20px', display: 'flex', alignItems: 'center', gap: '14px', background: 'rgba(29, 185, 84, 0.05)', border: '1px solid rgba(29, 185, 84, 0.2)', borderRadius: '6px' }}>
               <div style={{ color: '#1DB954' }}><Award size={22} /></div>
               <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: '1.5' }}>
-                <strong style={{ color: '#fff' }}>Validato empiricamente su DuckDB-WASM.</strong> Tutte le metriche — overlap%, distribuzione generi, trend temporale — sono calcolate in tempo reale dal DWH con schema star (bridge Kimball, dim_genere conformata, fact partizionata 2017–2024). Nessun dato pre-impostato.
+                <strong style={{ color: '#fff' }}>Validato empiricamente.</strong> Tutte le metriche — overlap%, distribuzione generi, trend temporale — sono calcolate in tempo reale dal DWH con schema star (bridge Kimball, dim_genere conformata, fact partizionata 2017–2024). Nessun dato pre-impostato.
               </p>
             </div>
           </div>
@@ -2056,7 +2055,7 @@ function App() {
       <header className="app-header">
         <div className="app-title-group">
           <h1><Compass size={32} className="text-green" /> Spotify DWH</h1>
-          <p>Esplora la Divergenza Culturale tra Classifiche Locali e Hit Globali (OLAP in-browser via DuckDB-WASM)</p>
+          <p>Esplora la Divergenza Culturale tra Classifiche Locali e Hit Globali</p>
         </div>
         <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
           <div className="mode-toggle-container">
@@ -2076,8 +2075,6 @@ function App() {
               <Presentation size={16} /> Pitch Presentazione
             </button>
           </div>
-          <span className="status-badge"><Globe size={16} /> DuckDB-WASM Attivo</span>
-          <span className="signature-badge">MD5 DWH Cache Checked</span>
         </div>
       </header>
 
@@ -2441,14 +2438,6 @@ function App() {
                   </select>
                 </div>
 
-                {/* Tableau Export */}
-                <a 
-                  href={`${BACKEND_URL}/api/download-tableau`}
-                  className="btn-secondary"
-                  style={{ textDecoration: 'none', width: '100%', marginTop: '10px' }}
-                >
-                  <Download size={18} /> Esporta CSV per Tableau
-                </a>
               </div>
             </div>
 
@@ -2504,45 +2493,6 @@ function App() {
               </div>
             </div>
 
-            {/* BENCHMARK PANEL */}
-            <div className="glass-panel">
-              <h3 style={{ fontFamily: 'var(--font-title)', marginBottom: '12px', fontSize: '1.1rem', color: 'var(--accent-blue)' }}>
-                Benchmark ROLAP vs MOLAP
-              </h3>
-              <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '16px' }}>
-                Misura i tempi di esecuzione in-browser confrontando una query relazionale complessa con lo Star Schema (ROLAP) rispetto alla tabella pre-aggregata (MOLAP).
-              </p>
-
-              <div className="benchmark-metrics">
-                <div className="benchmark-card rolap">
-                  <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>ROLAP</div>
-                  <div className="benchmark-time" style={{ color: 'var(--accent-purple)' }}>
-                    {benchmarkStatus === "running" ? "..." : `${rolapTime.toFixed(1)} ms`}
-                  </div>
-                </div>
-
-                <div className="benchmark-card molap">
-                  <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>MOLAP</div>
-                  <div className="benchmark-time" style={{ color: 'var(--accent-blue)' }}>
-                    {benchmarkStatus === "running" ? "..." : `${molapTime.toFixed(1)} ms`}
-                  </div>
-                </div>
-              </div>
-
-              {rolapTime > 0 && molapTime > 0 && (
-                <div className="benchmark-speedup">
-                  ⚡ Speedup MOLAP: {(rolapTime / molapTime).toFixed(1)}x più veloce
-                </div>
-              )}
-              
-              <button 
-                className="btn-secondary" 
-                style={{ width: '100%', padding: '8px 16px', fontSize: '0.8rem', marginTop: '12px' }}
-                onClick={runBenchmark}
-              >
-                <RefreshCw size={14} /> Esegui di Nuovo
-              </button>
-            </div>
           </aside>
 
           {/* MAIN CONTENTS */}

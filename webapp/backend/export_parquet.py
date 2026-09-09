@@ -11,7 +11,7 @@ DB_HOST = os.getenv("DB_RECONCILED_HOST", "localhost")
 DB_PORT = os.getenv("DB_RECONCILED_PORT", "5432")
 DB_DWH_NAME = os.getenv("DB_DWH_NAME", "spotify_dw")
 DB_USER = os.getenv("DB_RECONCILED_USER", "postgres")
-DB_PASS = os.getenv("DB_RECONCILED_PASSWORD", "Lollo")
+DB_PASS = os.getenv("DB_RECONCILED_PASSWORD", "")
 
 EXPORT_DIR = Path(__file__).parent / "static" / "parquet"
 
@@ -45,7 +45,7 @@ def export_to_parquet():
         
         # Save to parquet
         df.to_parquet(file_path, index=False, engine="pyarrow", compression="snappy")
-        print(f"  ✓ Saved {len(df):,} rows to {file_path.relative_to(Path(__file__).parent.parent.parent)}")
+        print(f"  Saved {len(df):,} rows to {file_path.relative_to(Path(__file__).parent.parent.parent)}")
         
     conn.close()
     print("All tables successfully exported to Parquet!")
